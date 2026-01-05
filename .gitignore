@@ -1,0 +1,34 @@
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# --- Node / package managers ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.DS_Store
+
+# --- Hardhat ---
+artifacts/
+cache/
+coverage/
+coverage.json
+typechain/
+typechain-types/
+deployments/
+gasReporterOutput.json
+
+# --- Next.js / React ---
+.next/
+out/
+.vercel/
+*.tsbuildinfo
+.next-env.d.ts
+
+# --- Misc ---
+*.log
