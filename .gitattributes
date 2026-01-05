@@ -1,0 +1,36 @@
+# Default: normalize all text files to LF in repo
+* text=auto eol=lf
+
+# Explicit text types
+*.js text
+*.ts text
+*.tsx text
+*.json text
+*.md text
+*.sol text
+*.css text
+*.scss text
+*.html text
+*.yml text
+*.yaml text
+*.sh text
+*.env text
+*.example text
+
+# Windows-specific scripts (keep CRLF if ever added)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files (never modify line endings)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.pdf binary
+*.zip binary
