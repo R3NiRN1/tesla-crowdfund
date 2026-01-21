@@ -46,6 +46,27 @@ This repo is structured for local development and testing while keeping secrets 
 
 ---
 
+## Quickstart
+
+See the full install guide: [docs/INSTALL.md](docs/INSTALL.md).
+
+```bash
+npm install
+cp .env.example .env
+npm run compile
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+---
+
 ## Setup (Local Development)
 
 ### Install dependencies
