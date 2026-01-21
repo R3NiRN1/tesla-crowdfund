@@ -6,12 +6,12 @@ export async function connectWallet() {
     return;
   }
 
-  const provider = new ethers.BrowserProvider(
+  const provider = new ethers.providers.Web3Provider(
     (window as any).ethereum
   );
 
   await provider.send("eth_requestAccounts", []);
-  const signer = await provider.getSigner();
+  const signer = provider.getSigner();
 
   return { provider, signer };
 }
