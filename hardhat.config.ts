@@ -5,16 +5,26 @@ import "@nomiclabs/hardhat-ethers";
 import * as dotenv from "dotenv";
 dotenv.config();
 
-const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
-const BSC_TESTNET_RPC = process.env.BSC_TESTNET_RPC || "";
+const DEPLOYER_PRIVATE_KEY = process.env.DEPLOYER_PRIVATE_KEY || "";
+const BSC_TESTNET_RPC_URL = process.env.BSC_TESTNET_RPC_URL || "";
+const BSC_MAINNET_RPC_URL = process.env.BSC_MAINNET_RPC_URL || "";
 
 const config: HardhatUserConfig = {
   solidity: "0.8.20",
   networks: {
-    bsctest: {
-      url: BSC_TESTNET_RPC,
-      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
+    hardhat: {},
+    localhost: {
+      url: "http://127.0.0.1:8545",
+    },
+    bscTestnet: {
+      url: BSC_TESTNET_RPC_URL,
+      accounts: DEPLOYER_PRIVATE_KEY ? [DEPLOYER_PRIVATE_KEY] : [],
       chainId: 97,
+    },
+    bscMainnet: {
+      url: BSC_MAINNET_RPC_URL,
+      accounts: DEPLOYER_PRIVATE_KEY ? [DEPLOYER_PRIVATE_KEY] : [],
+      chainId: 56,
     },
   },
 };

@@ -246,7 +246,7 @@ Although you could let TES holders who did **not** contribute vote on milestones
    require('@nomiclabs/hardhat-ethers');
    require('dotenv').config();
 
-   const { BSC_TESTNET_RPC, PRIVATE_KEY } = process.env;
+   const { BSC_TESTNET_RPC_URL, DEPLOYER_PRIVATE_KEY } = process.env;
 
    module.exports = {
      solidity: {
@@ -255,8 +255,8 @@ Although you could let TES holders who did **not** contribute vote on milestones
      },
      networks: {
        bsctest: {
-         url: BSC_TESTNET_RPC,
-         accounts: [PRIVATE_KEY],
+         url: BSC_TESTNET_RPC_URL,
+         accounts: [DEPLOYER_PRIVATE_KEY],
        },
      },
    };
