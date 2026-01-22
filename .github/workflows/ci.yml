@@ -12,6 +12,12 @@ jobs:
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_RPC_URL: https://bsc-testnet.publicnode.com
+      NEXT_PUBLIC_CHAIN_ID: "97"
+      NEXT_PUBLIC_FACTORY_ADDRESS: 0x0000000000000000000000000000000000000000
+      NEXT_PUBLIC_TOKEN_ADDRESS: 0x0000000000000000000000000000000000000000
+      NEXT_PUBLIC_BSCSCAN_BASE: https://testnet.bscscan.com
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,6 +37,12 @@ jobs:
   contracts:
     name: Contracts
     runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_RPC_URL: https://bsc-testnet.publicnode.com
+      NEXT_PUBLIC_CHAIN_ID: "97"
+      NEXT_PUBLIC_FACTORY_ADDRESS: 0x0000000000000000000000000000000000000000
+      NEXT_PUBLIC_TOKEN_ADDRESS: 0x0000000000000000000000000000000000000000
+      NEXT_PUBLIC_BSCSCAN_BASE: https://testnet.bscscan.com
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,5 +54,9 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Preflight
+        run: npm run preflight
       - name: Compile
         run: npx hardhat compile
+      - name: Test
+        run: npm run test:contracts

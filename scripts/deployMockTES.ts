@@ -1,6 +1,8 @@
 import { ethers } from "hardhat";
+import { assertBscChainId } from "./networkGuard";
 
 async function main() {
+  assertBscChainId();
   const [deployer] = await ethers.getSigners();
   console.log("Deployer:", deployer.address);
 

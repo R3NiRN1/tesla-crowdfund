@@ -5,6 +5,8 @@ import { formatUnits } from "viem";
 
 import { readFactoryIndex, FACTORY } from "@/lib/readFactory";
 import { readCampaign, CampaignView } from "@/lib/readCampaign";
+import { targetChainId, targetExplorerBase } from "@/lib/chain";
+import { useNetworkGuard } from "@/lib/useNetworkGuard";
 
 import FundCampaign from "@/components/FundCampaign";
 import WalletBar from "@/components/WalletBar";
@@ -13,7 +15,7 @@ import ConnectWallet from "@/components/ConnectWallet";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { campaignWriteAbi } from "@/lib/campaignWriteAbi";
 
-const explorer = process.env.NEXT_PUBLIC_BSCSCAN_BASE || "https://testnet.bscscan.com";
+const explorer = targetExplorerBase;
 const tokenFromEnv = process.env.NEXT_PUBLIC_TOKEN_ADDRESS as `0x${string}` | undefined;
 
 function short(addr?: string) {
@@ -25,6 +27,7 @@ export default function Home() {
   const { address: connected, isConnected } = useAccount();
   const { writeContract, data: claimHash, isPending: claimPending, error: claimError } = useWriteContract();
   const claimReceipt = useWaitForTransactionReceipt({ hash: claimHash });
+  const networkGuard = useNetworkGuard();
 
   const [token, setToken] = useState<`0x${string}` | null>(null);
   const [addresses, setAddresses] = useState<`0x${string}`[]>([]);
@@ -106,6 +109,7 @@ export default function Home() {
 
   const claimMilestone = (index: number) => {
     if (!campaign) return;
+    if (networkGuard.isMismatch) return;
     writeContract({
       address: campaign.address,
       abi: campaignWriteAbi,
@@ -117,13 +121,16 @@ export default function Home() {
   return (
     <main style={{ padding: 24, fontFamily: "system-ui" }}>
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <h1 style={{ margin: 0 }}>TES Crowdfund – Testnet Explorer</h1>
+        <h1 style={{ margin: 0 }}>
+          TES Crowdfund – {targetChainId === 56 ? "Mainnet" : "Testnet"} Explorer
+        </h1>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <WalletBar />
           <ConnectWallet />
         </div>
       </header>
 
+      {networkGuard.message && <p style={{ color: "crimson" }}>{networkGuard.message}</p>}
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 18, fontSize: 14 }}>
         <span>
           Factory:{" "}
@@ -240,11 +247,13 @@ export default function Home() {
                 {isConnected && !isOwner && <div>Connected wallet is not the owner.</div>}
                 {isConnected && isOwner && !goalReached && <div>Goal not reached yet.</div>}
                 {claimError && <div style={{ color: "crimson" }}>{String((claimError as any)?.message || claimError)}</div>}
+                {networkGuard.message && <div style={{ color: "crimson" }}>{networkGuard.message}</div>}
               </div>
 
               <div style={{ display: "grid", gap: 10 }}>
                 {campaign.milestones.map((m, i) => {
                   const canClaim = isConnected && isOwner && goalReached && !m.claimed && !claimPending && !claimReceipt.isLoading;
+                  const canClaimWithNetwork = canClaim && !networkGuard.isMismatch;
 
                   return (
                     <div key={i} style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
@@ -262,20 +271,22 @@ export default function Home() {
                       <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                         <button
                           onClick={() => claimMilestone(i)}
-                          disabled={!canClaim}
+                          disabled={!canClaimWithNetwork}
                           style={{
                             padding: "8px 12px",
                             borderRadius: 10,
                             border: "1px solid #111",
                             background: "white",
                             cursor: "pointer",
-                            opacity: canClaim ? 1 : 0.5,
+                            opacity: canClaimWithNetwork ? 1 : 0.5,
                           }}
                           title={
                             m.claimed
                               ? "Already claimed"
                               : !isConnected
                               ? "Connect wallet"
+                              : networkGuard.isMismatch
+                              ? networkGuard.message ?? "Wrong network"
                               : !isOwner
                               ? "Only owner can claim"
                               : !goalReached

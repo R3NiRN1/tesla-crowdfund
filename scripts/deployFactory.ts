@@ -1,11 +1,9 @@
-import { ethers, network } from "hardhat";
+import { ethers } from "hardhat";
+import { assertBscChainId, assertMainnetConfirmation } from "./networkGuard";
 
 async function main() {
-  if (network.name === "bscMainnet" && process.env.CONFIRM_MAINNET !== "yes") {
-    throw new Error(
-      "Mainnet deploy blocked. Set CONFIRM_MAINNET=yes to proceed."
-    );
-  }
+  assertBscChainId();
+  assertMainnetConfirmation();
 
   const tokenAddress =
     process.env.MOCK_TES_ADDRESS || process.env.TOKEN_ADDRESS;

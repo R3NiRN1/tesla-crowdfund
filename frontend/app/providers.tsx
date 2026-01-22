@@ -2,10 +2,10 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { WagmiProvider, http } from "wagmi";
-import { bscTestnet } from "wagmi/chains";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RainbowKitProvider, getDefaultConfig } from "@rainbow-me/rainbowkit";
 import "@rainbow-me/rainbowkit/styles.css";
+import { configuredChain, targetRpcUrl } from "@/lib/chain";
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
@@ -13,8 +13,6 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   const queryClient = useMemo(() => new QueryClient(), []);
 
   const projectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID;
-  const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL;
-
   const config = useMemo(() => {
     if (!mounted) return null;
     if (!projectId) return null;
@@ -22,13 +20,13 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     return getDefaultConfig({
       appName: "TES Crowdfund",
       projectId,
-      chains: [bscTestnet],
+      chains: [configuredChain],
       transports: {
-        [bscTestnet.id]: rpcUrl ? http(rpcUrl) : http(),
+        [configuredChain.id]: targetRpcUrl ? http(targetRpcUrl) : http(),
       },
       ssr: false,
     });
-  }, [mounted, projectId, rpcUrl]);
+  }, [mounted, projectId]);
 
   useEffect(() => setMounted(true), []);
 

@@ -46,23 +46,19 @@ This repo is structured for local development and testing while keeping secrets 
 
 ---
 
-## Quickstart
+## Quickstart (Happy path)
 
 See the full install guide: [docs/INSTALL.md](docs/INSTALL.md).
 
 ```bash
 npm install
 cp .env.example .env
-npm run compile
-```
-
-Frontend:
-
-```bash
-cd frontend
-npm install
-cp .env.example .env.local
-npm run dev
+cd frontend && cp .env.example .env.local
+cd ..
+npm run preflight
+npm run test:contracts
+npm run build:frontend
+cd frontend && npm run dev
 ```
 
 ---
@@ -90,6 +86,10 @@ cp .env.example .env.local
 
 Never commit real `.env` files.
 
+> ⚠️ Changing only `NEXT_PUBLIC_CHAIN_ID` is not enough. You must also update
+> `NEXT_PUBLIC_RPC_URL`, the deployed addresses, and `NEXT_PUBLIC_BSCSCAN_BASE`
+> to match the same network (testnet vs mainnet).
+
 ---
 
 ## Smart Contracts (Hardhat — BNB Smart Chain Testnet)
@@ -98,13 +98,13 @@ Compile:
 npx hardhat compile
 
 Test:
-npx hardhat test
+npm run test:contracts
 
 Local node:
 npx hardhat node
 
 Deploy:
-npx hardhat run scripts/deploy.ts --network localhost
+npm run deploy:testnet
 
 ---
 
@@ -115,6 +115,15 @@ npm install
 npm run dev
 
 App runs at http://localhost:3000
+
+---
+
+## Mainnet checklist
+
+- ✅ Set **all** mainnet env vars (RPC URL, addresses, chain id, explorer base).
+- ✅ Run `npm run preflight` and ensure it passes.
+- ✅ Confirm you are on the correct wallet network (chainId 56).
+- ✅ Set `CONFIRM_MAINNET=yes` before any mainnet deploy or write scripts.
 
 ---
 

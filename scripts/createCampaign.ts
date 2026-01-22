@@ -1,6 +1,9 @@
 import { ethers } from "hardhat";
+import { assertBscChainId, assertMainnetConfirmation } from "./networkGuard";
 
 async function main() {
+  assertBscChainId();
+  assertMainnetConfirmation();
   const FACTORY = process.env.FACTORY_ADDRESS;
   if (!FACTORY) throw new Error("Set FACTORY_ADDRESS in root .env");
 

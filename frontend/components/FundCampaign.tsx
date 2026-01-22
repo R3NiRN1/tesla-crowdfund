@@ -7,6 +7,7 @@ import { formatUnits, parseUnits } from "viem";
 
 import { erc20Abi } from "@/lib/erc20Abi";
 import { campaignWriteAbi } from "@/lib/campaignWriteAbi";
+import { useNetworkGuard } from "@/lib/useNetworkGuard";
 
 function short(addr?: string) {
   if (!addr || typeof addr !== "string") return "—";
@@ -23,6 +24,7 @@ export default function FundCampaign({
   onContributed?: () => void;
 }) {
   const { address, isConnected } = useAccount();
+  const networkGuard = useNetworkGuard();
   const [amountText, setAmountText] = useState("10");
 
   // If allowance reads fail (RPC/CORS/ABI/metadata issues), keep UI usable
@@ -142,6 +144,7 @@ export default function FundCampaign({
 
   const onApprove = async () => {
     if (!isConnected || !address) return;
+    if (networkGuard.isMismatch) return;
     if (parsedAmount <= 0n) return;
 
     try {
@@ -165,6 +168,7 @@ export default function FundCampaign({
 
   const onContribute = async () => {
     if (!isConnected || !address) return;
+    if (networkGuard.isMismatch) return;
     if (parsedAmount <= 0n) return;
 
     try {
@@ -208,7 +212,13 @@ export default function FundCampaign({
 
         <button
           onClick={onApprove}
-          disabled={!isConnected || parsedAmount <= 0n || isPending || waiting}
+          disabled={
+            !isConnected ||
+            parsedAmount <= 0n ||
+            isPending ||
+            waiting ||
+            networkGuard.isMismatch
+          }
           style={{
             padding: "8px 12px",
             borderRadius: 10,
@@ -216,7 +226,14 @@ export default function FundCampaign({
             background: "#111",
             color: "white",
             cursor: "pointer",
-            opacity: !isConnected || parsedAmount <= 0n || isPending || waiting ? 0.6 : 1,
+            opacity:
+              !isConnected ||
+              parsedAmount <= 0n ||
+              isPending ||
+              waiting ||
+              networkGuard.isMismatch
+                ? 0.6
+                : 1,
           }}
         >
           {approveReceipt.isLoading ? "Approving…" : "1) Approve"}
@@ -224,16 +241,37 @@ export default function FundCampaign({
 
         <button
           onClick={onContribute}
-          disabled={!isConnected || parsedAmount <= 0n || needsApproval || isPending || waiting}
+          disabled={
+            !isConnected ||
+            parsedAmount <= 0n ||
+            needsApproval ||
+            isPending ||
+            waiting ||
+            networkGuard.isMismatch
+          }
           style={{
             padding: "8px 12px",
             borderRadius: 10,
             border: "1px solid #777",
             background: "white",
             cursor: "pointer",
-            opacity: !isConnected || parsedAmount <= 0n || needsApproval || isPending || waiting ? 0.6 : 1,
+            opacity:
+              !isConnected ||
+              parsedAmount <= 0n ||
+              needsApproval ||
+              isPending ||
+              waiting ||
+              networkGuard.isMismatch
+                ? 0.6
+                : 1,
           }}
-          title={needsApproval ? "Approve first (or allowance couldn't be read yet)." : "Send contribute() tx"}
+          title={
+            networkGuard.isMismatch
+              ? networkGuard.message ?? "Wrong network"
+              : needsApproval
+              ? "Approve first (or allowance couldn't be read yet)."
+              : "Send contribute() tx"
+          }
         >
           {contribReceipt.isLoading ? "Contributing…" : "2) Contribute"}
         </button>
@@ -275,6 +313,10 @@ export default function FundCampaign({
               ? "⏳ pending"
               : ""}
           </div>
+        )}
+
+        {networkGuard.message && (
+          <div style={{ marginTop: 6, color: "crimson" }}>{networkGuard.message}</div>
         )}
 
         {(readsError || writeError) && (

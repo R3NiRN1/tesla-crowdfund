@@ -1,16 +1,16 @@
 import { http, createConfig } from "wagmi";
-import { bscTestnet } from "wagmi/chains";
 import { injected, walletConnect } from "wagmi/connectors";
+import { configuredChain, targetRpcUrl } from "./chain";
 
 const projectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID as string;
 
 export const wagmiConfig = createConfig({
-  chains: [bscTestnet],
+  chains: [configuredChain],
   connectors: [
     injected(), // MetaMask / browser wallets
     walletConnect({ projectId }),
   ],
   transports: {
-    [bscTestnet.id]: http(process.env.NEXT_PUBLIC_RPC_URL),
+    [configuredChain.id]: http(targetRpcUrl),
   },
 });

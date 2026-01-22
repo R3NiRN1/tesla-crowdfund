@@ -1,7 +1,7 @@
 "use client";
 
 import { useAccount, useConnect, useDisconnect, useChainId, useSwitchChain } from "wagmi";
-import { bscTestnet } from "wagmi/chains";
+import { targetChainId } from "@/lib/chain";
 
 function short(addr: string) {
   return addr.slice(0, 6) + "…" + addr.slice(-4);
@@ -14,7 +14,8 @@ export default function WalletBar() {
   const chainId = useChainId();
   const { switchChain, isPending: switching } = useSwitchChain();
 
-  const wrongChain = isConnected && chainId !== bscTestnet.id;
+  const wrongChain = isConnected && chainId !== targetChainId;
+  const targetLabel = targetChainId === 56 ? "BSC Mainnet" : "BSC Testnet";
 
   return (
     <div
@@ -48,7 +49,7 @@ export default function WalletBar() {
 
           {wrongChain ? (
             <button
-              onClick={() => switchChain({ chainId: bscTestnet.id })}
+              onClick={() => switchChain({ chainId: targetChainId })}
               disabled={switching}
               style={{
                 padding: "8px 12px",
@@ -57,10 +58,10 @@ export default function WalletBar() {
                 background: "#fff7cc",
               }}
             >
-              {switching ? "Switching…" : "Switch to BSC Testnet"}
+              {switching ? "Switching…" : `Switch to ${targetLabel}`}
             </button>
           ) : (
-            <span style={{ opacity: 0.8 }}>(BSC Testnet)</span>
+            <span style={{ opacity: 0.8 }}>({targetLabel})</span>
           )}
 
           <button
