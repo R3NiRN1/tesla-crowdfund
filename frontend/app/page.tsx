@@ -9,10 +9,12 @@ import { readCampaign, CampaignView } from "@/lib/readCampaign";
 import FundCampaign from "@/components/FundCampaign";
 import WalletBar from "@/components/WalletBar";
 import ConnectWallet from "@/components/ConnectWallet";
+import NetworkGuard from "@/components/NetworkGuard";
 
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { campaignWriteAbi } from "@/lib/campaignWriteAbi";
 import { getPublicConfig, ZERO_ADDRESS } from "@/lib/publicConfig";
+import { useNetworkGuard } from "@/lib/useNetworkGuard";
 
 function short(addr?: string) {
   if (!addr) return "—";
@@ -23,6 +25,7 @@ export default function Home() {
   const publicConfig = getPublicConfig();
   const explorer = publicConfig.bscscanBase || "https://testnet.bscscan.com";
   const setupMode = !publicConfig.isConfigured;
+  const networkGuard = useNetworkGuard();
   const { address: connected, isConnected } = useAccount();
   const { writeContract, data: claimHash, isPending: claimPending, error: claimError } = useWriteContract();
   const claimReceipt = useWaitForTransactionReceipt({ hash: claimHash });
@@ -111,7 +114,7 @@ export default function Home() {
   }, [claimReceipt.data?.status]);
 
   const claimMilestone = (index: number) => {
-    if (setupMode) return;
+    if (setupMode || networkGuard.blockWrites) return;
     if (!campaign) return;
     writeContract({
       address: campaign.address,
@@ -130,6 +133,8 @@ export default function Home() {
           <ConnectWallet />
         </div>
       </header>
+
+      <NetworkGuard />
 
       {setupMode && (
         <div
@@ -246,8 +251,12 @@ export default function Home() {
                   token={tokenAddress}
                   campaign={campaign.address}
                   onContributed={() => refreshSelectedCampaign(campaign.address)}
-                  disabled={setupMode}
-                  disabledReason="Setup required: contract addresses not configured."
+                  disabled={setupMode || networkGuard.blockWrites}
+                  disabledReason={
+                    setupMode
+                      ? "Setup required: contract addresses not configured."
+                      : networkGuard.message || "Wrong network: switch to the expected chain."
+                  }
                 />
               ) : (
                 <div style={{ marginTop: 12, color: "crimson" }}>
@@ -272,6 +281,7 @@ export default function Home() {
                 {campaign.milestones.map((m, i) => {
                   const canClaim =
                     !setupMode &&
+                    !networkGuard.blockWrites &&
                     isConnected &&
                     isOwner &&
                     goalReached &&
