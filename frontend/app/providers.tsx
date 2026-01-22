@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { WagmiProvider, http } from "wagmi";
+import { WagmiProvider, createConfig, http } from "wagmi";
+import { injected } from "wagmi/connectors";
 import { type Transport } from "viem";
 import { bsc, bscTestnet } from "viem/chains";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -14,39 +15,39 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
   const queryClient = useMemo(() => new QueryClient(), []);
 
-  const projectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID;
-  const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL;
-  const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID || bscTestnet.id);
-
   const config = useMemo(() => {
     if (!mounted) return null;
     const publicConfig = getPublicConfig();
-    const chain = publicConfig.chainId === 56 ? bsc : bscTestnet;
-    const transports = {
-      [chain.id]: publicConfig.rpcUrl ? http(publicConfig.rpcUrl) : http(),
-    };
-
     const transports = {
       [bsc.id]: http(
-        chainId === bsc.id && rpcUrl
-          ? rpcUrl
+        publicConfig.chainId === bsc.id && publicConfig.rpcUrl
+          ? publicConfig.rpcUrl
           : undefined
       ),
       [bscTestnet.id]: http(
-        chainId === bscTestnet.id && rpcUrl
-          ? rpcUrl
+        publicConfig.chainId === bscTestnet.id && publicConfig.rpcUrl
+          ? publicConfig.rpcUrl
           : undefined
       ),
     } satisfies Record<56 | 97, Transport>;
 
-    return getDefaultConfig({
-      appName: "TES Crowdfund",
-      projectId,
+    if (publicConfig.wcEnabled && publicConfig.wcProjectId) {
+      return getDefaultConfig({
+        appName: "TES Crowdfund",
+        projectId: publicConfig.wcProjectId,
+        chains: [bsc, bscTestnet],
+        transports,
+        ssr: false,
+      });
+    }
+
+    return createConfig({
       chains: [bsc, bscTestnet],
+      connectors: [injected()],
       transports,
       ssr: false,
     });
-  }, [mounted, projectId, rpcUrl, chainId]);
+  }, [mounted]);
 
   useEffect(() => setMounted(true), []);
 
