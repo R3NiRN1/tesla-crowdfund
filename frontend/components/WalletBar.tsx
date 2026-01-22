@@ -1,7 +1,9 @@
 "use client";
 
-import { useAccount, useChainId } from "wagmi";
+import { useAccount } from "wagmi";
 import { useEffect, useState } from "react";
+
+import { useNetworkGuard } from "@/lib/useNetworkGuard";
 
 function short(a?: string) {
   if (!a) return "?";
@@ -10,7 +12,7 @@ function short(a?: string) {
 
 export default function WalletBar() {
   const { address, isConnected } = useAccount();
-  const chainId = useChainId();
+  const guard = useNetworkGuard();
 
   // hydration guard
   const [mounted, setMounted] = useState(false);
@@ -24,7 +26,8 @@ export default function WalletBar() {
 
   return (
     <span style={{ opacity: 0.8 }}>
-      Connected: {short(address)} (chain {chainId})
+      Connected: {short(address)} ({guard.actualLabel ?? `chain ${guard.actualChainId ?? "?"}`})
+      {guard.isWrongNetwork && guard.expectedLabel ? ` · expected ${guard.expectedLabel}` : ""}
     </span>
   );
 }

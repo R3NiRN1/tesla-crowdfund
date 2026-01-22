@@ -67,6 +67,20 @@ npm run dev
 
 ---
 
+## Happy Path (from a fresh clone)
+
+```bash
+npm install
+cp .env.example .env
+npm run preflight
+npm run test:contracts
+npm run build:frontend
+cd frontend
+npm run dev
+```
+
+---
+
 ## Setup (Local Development)
 
 ### Install dependencies
@@ -115,6 +129,23 @@ npm install
 npm run dev
 
 App runs at http://localhost:3000
+
+---
+
+## BSC Testnet (97)
+
+1) Update `frontend/.env.local` with testnet values (chainId 97 and testnet explorer).
+2) Run `npm run preflight` to validate config.
+3) Deploy with `npm run deploy:testnet`.
+4) Copy deployed addresses into `frontend/.env.local` and rebuild the UI.
+
+---
+
+## BSC Mainnet (56, guarded)
+
+- **Deploys are blocked unless you set** `CONFIRM_MAINNET=YES` in your root `.env`.
+- Always do a small test tx, verify addresses, and confirm gas settings before deploying.
+- Run: `npm run preflight` → `CONFIRM_MAINNET=YES npm run deploy:mainnet`.
 
 ---
 

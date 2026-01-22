@@ -1,6 +1,9 @@
 import { ethers } from "hardhat";
+import { assertNetworkSafety } from "./guardrails";
 
 async function main() {
+  await assertNetworkSafety("createCampaign");
+
   const FACTORY = process.env.FACTORY_ADDRESS;
   if (!FACTORY) throw new Error("Set FACTORY_ADDRESS in root .env");
 

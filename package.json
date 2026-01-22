@@ -5,8 +5,11 @@
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
-    "deploy:testnet": "hardhat run scripts/deployFactory.ts --network bscTestnet",
-    "deploy:mainnet": "hardhat run scripts/deployFactory.ts --network bscMainnet"
+    "preflight": "node scripts/preflight.mjs",
+    "test:contracts": "hardhat test",
+    "build:frontend": "npm --prefix frontend run build",
+    "deploy:testnet": "npm run preflight && hardhat run scripts/deployFactory.ts --network bscTestnet",
+    "deploy:mainnet": "npm run preflight && node scripts/requireMainnetConfirm.mjs && hardhat run scripts/deployFactory.ts --network bscMainnet"
   },
   "keywords": [],
   "author": "",
