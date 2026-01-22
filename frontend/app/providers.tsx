@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { WagmiProvider, http } from "wagmi";
+import { WagmiProvider, createConfig, http } from "wagmi";
+import { injected } from "wagmi/connectors";
 import { type Transport } from "viem";
 import { bsc, bscTestnet } from "wagmi/chains";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -14,7 +15,6 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
   const queryClient = useMemo(() => new QueryClient(), []);
 
-  const projectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID;
   const config = useMemo(() => {
     if (!mounted) return null;
     const publicConfig = getPublicConfig();
@@ -31,14 +31,23 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       ),
     } satisfies Record<56 | 97, Transport>;
 
-    return getDefaultConfig({
-      appName: "TES Crowdfund",
-      projectId,
+    if (publicConfig.wcEnabled && publicConfig.wcProjectId) {
+      return getDefaultConfig({
+        appName: "TES Crowdfund",
+        projectId: publicConfig.wcProjectId,
+        chains: [bsc, bscTestnet],
+        transports,
+        ssr: false,
+      });
+    }
+
+    return createConfig({
       chains: [bsc, bscTestnet],
+      connectors: [injected()],
       transports,
       ssr: false,
     });
-  }, [mounted, projectId]);
+  }, [mounted]);
 
   useEffect(() => setMounted(true), []);
 
