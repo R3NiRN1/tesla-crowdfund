@@ -72,7 +72,8 @@ npm run dev
 ```bash
 npm install
 cp .env.example .env
-npm run preflight
+cp frontend/.env.example frontend/.env.local
+npm run preflight # or: ENV_FILE=frontend/.env.local npm run preflight
 npm run test:contracts
 npm run build:frontend
 cd frontend
