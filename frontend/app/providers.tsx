@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { WagmiProvider, http, createConfig } from "wagmi";
-import { bscTestnet } from "wagmi/chains";
+import { bsc, bscTestnet } from "wagmi/chains";
 import { injected } from "wagmi/connectors";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RainbowKitProvider, getDefaultConfig } from "@rainbow-me/rainbowkit";
@@ -17,22 +17,23 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   const config = useMemo(() => {
     if (!mounted) return null;
     const publicConfig = getPublicConfig();
+    const chain = publicConfig.chainId === 56 ? bsc : bscTestnet;
     const transports = {
-      [bscTestnet.id]: publicConfig.rpcUrl ? http(publicConfig.rpcUrl) : http(),
+      [chain.id]: publicConfig.rpcUrl ? http(publicConfig.rpcUrl) : http(),
     };
 
     if (publicConfig.wcEnabled && publicConfig.wcProjectId) {
       return getDefaultConfig({
         appName: "TES Crowdfund",
         projectId: publicConfig.wcProjectId,
-        chains: [bscTestnet],
+        chains: [chain],
         transports,
         ssr: false,
       });
     }
 
     return createConfig({
-      chains: [bscTestnet],
+      chains: [chain],
       connectors: [injected()],
       transports,
       ssr: false,

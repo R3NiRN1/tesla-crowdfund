@@ -6,6 +6,11 @@ const MAINNET_CONFIRM_VALUE = "YES";
 export async function assertNetworkSafety(actionLabel: string) {
   const expectedChainId = network.config.chainId;
   const actualChainId = (await ethers.provider.getNetwork()).chainId;
+  console.log(
+    `${actionLabel}: Hardhat network=${network.name}, expectedChainId=${
+      typeof expectedChainId === "number" ? expectedChainId : "unknown"
+    }, actualChainId=${actualChainId}`
+  );
 
   if (typeof expectedChainId === "number" && actualChainId !== expectedChainId) {
     throw new Error(

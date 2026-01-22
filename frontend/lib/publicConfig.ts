@@ -14,14 +14,22 @@ type PublicConfig = {
   missing: string[];
 };
 
-function parseAddress(value: string | undefined, label: string) {
+type ParsedAddress = {
+  value: string;
+  isValid: boolean;
+  isZero: boolean;
+};
+
+function parseAddress(value: string | undefined): ParsedAddress {
   const trimmed = value?.trim() ?? "";
-  if (!trimmed) return ZERO_ADDRESS;
-  if (!ADDRESS_REGEX.test(trimmed)) {
-    throw new Error(`${label} must be a 0x-prefixed 40-byte hex address.`);
+  if (!trimmed) {
+    return { value: ZERO_ADDRESS, isValid: false, isZero: true };
   }
-  if (trimmed.toLowerCase() === ZERO_ADDRESS) return ZERO_ADDRESS;
-  return trimmed;
+  if (!ADDRESS_REGEX.test(trimmed)) {
+    return { value: ZERO_ADDRESS, isValid: false, isZero: false };
+  }
+  const isZero = trimmed.toLowerCase() === ZERO_ADDRESS;
+  return { value: trimmed, isValid: true, isZero };
 }
 
 export function getPublicConfig(): PublicConfig {
@@ -29,14 +37,8 @@ export function getPublicConfig(): PublicConfig {
   const chainId = chainIdRaw ? Number(chainIdRaw) : null;
   const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL?.trim() || null;
 
-  const factoryAddress = parseAddress(
-    process.env.NEXT_PUBLIC_FACTORY_ADDRESS,
-    "NEXT_PUBLIC_FACTORY_ADDRESS"
-  );
-  const tokenAddress = parseAddress(
-    process.env.NEXT_PUBLIC_TOKEN_ADDRESS,
-    "NEXT_PUBLIC_TOKEN_ADDRESS"
-  );
+  const factoryAddress = parseAddress(process.env.NEXT_PUBLIC_FACTORY_ADDRESS);
+  const tokenAddress = parseAddress(process.env.NEXT_PUBLIC_TOKEN_ADDRESS);
 
   const bscscanBase = process.env.NEXT_PUBLIC_BSCSCAN_BASE?.trim() || null;
   const wcEnabled = process.env.NEXT_PUBLIC_WC_ENABLED === "true";
@@ -48,20 +50,20 @@ export function getPublicConfig(): PublicConfig {
   const missing: string[] = [];
   if (!resolvedChainId) missing.push("NEXT_PUBLIC_CHAIN_ID");
   if (!rpcUrl) missing.push("NEXT_PUBLIC_RPC_URL");
-  if (factoryAddress === ZERO_ADDRESS) missing.push("NEXT_PUBLIC_FACTORY_ADDRESS");
-  if (tokenAddress === ZERO_ADDRESS) missing.push("NEXT_PUBLIC_TOKEN_ADDRESS");
+  if (!factoryAddress.isValid || factoryAddress.value === ZERO_ADDRESS) missing.push("NEXT_PUBLIC_FACTORY_ADDRESS");
+  if (!tokenAddress.isValid || tokenAddress.value === ZERO_ADDRESS) missing.push("NEXT_PUBLIC_TOKEN_ADDRESS");
 
   const isConfigured =
     !!rpcUrl &&
     !!resolvedChainId &&
-    factoryAddress !== ZERO_ADDRESS &&
-    tokenAddress !== ZERO_ADDRESS;
+    factoryAddress.value !== ZERO_ADDRESS &&
+    tokenAddress.value !== ZERO_ADDRESS;
 
   return {
     chainId: resolvedChainId,
     rpcUrl,
-    factoryAddress,
-    tokenAddress,
+    factoryAddress: factoryAddress.value,
+    tokenAddress: tokenAddress.value,
     bscscanBase,
     wcEnabled,
     wcProjectId,

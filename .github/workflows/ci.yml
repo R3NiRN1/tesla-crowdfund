@@ -9,34 +9,8 @@ on:
   pull_request:
 
 jobs:
-  frontend:
-    name: Frontend
-    runs-on: ubuntu-latest
-    env:
-      NEXT_PUBLIC_RPC_URL: "https://bsc-testnet.publicnode.com"
-      NEXT_PUBLIC_CHAIN_ID: "97"
-      NEXT_PUBLIC_FACTORY_ADDRESS: "0x0000000000000000000000000000000000000000"
-      NEXT_PUBLIC_TOKEN_ADDRESS: "0x0000000000000000000000000000000000000000"
-      NEXT_PUBLIC_BSCSCAN_BASE: "https://testnet.bscscan.com"
-      NEXT_PUBLIC_WC_ENABLED: "false"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Use Node.js 20.9.0
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20.9.0
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Install dependencies
-        working-directory: frontend
-        run: npm ci
-      - name: Build
-        working-directory: frontend
-        run: npm run build
-
-  contracts:
-    name: Contracts
+  ci:
+    name: CI
     runs-on: ubuntu-latest
     env:
       NEXT_PUBLIC_RPC_URL: "https://bsc-testnet.publicnode.com"
@@ -54,9 +28,17 @@ jobs:
           node-version: 20.9.0
           cache: npm
           cache-dependency-path: package-lock.json
-      - name: Install dependencies
+      - name: Install dependencies (root)
         run: npm ci
+      - name: Compile contracts
+        run: npm run compile
       - name: Test contracts
         run: npm run test:contracts
       - name: Preflight
         run: npm run preflight
+      - name: Install dependencies (frontend)
+        working-directory: frontend
+        run: npm ci
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
