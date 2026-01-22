@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
 
-import { readFactoryIndex, FACTORY } from "@/lib/readFactory";
+import { readFactoryIndex } from "@/lib/readFactory";
 import { readCampaign, CampaignView } from "@/lib/readCampaign";
 
 import FundCampaign from "@/components/FundCampaign";
@@ -12,9 +12,7 @@ import ConnectWallet from "@/components/ConnectWallet";
 
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { campaignWriteAbi } from "@/lib/campaignWriteAbi";
-
-const explorer = process.env.NEXT_PUBLIC_BSCSCAN_BASE || "https://testnet.bscscan.com";
-const tokenFromEnv = process.env.NEXT_PUBLIC_TOKEN_ADDRESS as `0x${string}` | undefined;
+import { getPublicConfig, ZERO_ADDRESS } from "@/lib/publicConfig";
 
 function short(addr?: string) {
   if (!addr) return "—";
@@ -22,6 +20,9 @@ function short(addr?: string) {
 }
 
 export default function Home() {
+  const publicConfig = getPublicConfig();
+  const explorer = publicConfig.bscscanBase || "https://testnet.bscscan.com";
+  const setupMode = !publicConfig.isConfigured;
   const { address: connected, isConnected } = useAccount();
   const { writeContract, data: claimHash, isPending: claimPending, error: claimError } = useWriteContract();
   const claimReceipt = useWaitForTransactionReceipt({ hash: claimHash });
@@ -84,7 +85,12 @@ export default function Home() {
   }, [campaign]);
 
   // Prefer factory token; fall back to env token if needed
-  const tokenAddress = token ?? tokenFromEnv ?? null;
+  const tokenAddress =
+    token && token.toLowerCase() !== ZERO_ADDRESS
+      ? token
+      : publicConfig.tokenAddress !== ZERO_ADDRESS
+      ? (publicConfig.tokenAddress as `0x${string}`)
+      : null;
 
   const isOwner = useMemo(() => {
     if (!campaign || !connected) return false;
@@ -105,6 +111,7 @@ export default function Home() {
   }, [claimReceipt.data?.status]);
 
   const claimMilestone = (index: number) => {
+    if (setupMode) return;
     if (!campaign) return;
     writeContract({
       address: campaign.address,
@@ -124,11 +131,28 @@ export default function Home() {
         </div>
       </header>
 
+      {setupMode && (
+        <div
+          style={{
+            marginBottom: 16,
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid #f59e0b",
+            background: "#fffbeb",
+            color: "#92400e",
+            fontSize: 14,
+          }}
+        >
+          Setup required: contract addresses not configured. Update NEXT_PUBLIC_FACTORY_ADDRESS and
+          NEXT_PUBLIC_TOKEN_ADDRESS to enable write actions.
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 18, fontSize: 14 }}>
         <span>
           Factory:{" "}
-          <a href={`${explorer}/address/${FACTORY}`} target="_blank" rel="noreferrer">
-            {short(FACTORY)}
+          <a href={`${explorer}/address/${publicConfig.factoryAddress}`} target="_blank" rel="noreferrer">
+            {short(publicConfig.factoryAddress)}
           </a>
         </span>
 
@@ -222,6 +246,8 @@ export default function Home() {
                   token={tokenAddress}
                   campaign={campaign.address}
                   onContributed={() => refreshSelectedCampaign(campaign.address)}
+                  disabled={setupMode}
+                  disabledReason="Setup required: contract addresses not configured."
                 />
               ) : (
                 <div style={{ marginTop: 12, color: "crimson" }}>
@@ -244,7 +270,14 @@ export default function Home() {
 
               <div style={{ display: "grid", gap: 10 }}>
                 {campaign.milestones.map((m, i) => {
-                  const canClaim = isConnected && isOwner && goalReached && !m.claimed && !claimPending && !claimReceipt.isLoading;
+                  const canClaim =
+                    !setupMode &&
+                    isConnected &&
+                    isOwner &&
+                    goalReached &&
+                    !m.claimed &&
+                    !claimPending &&
+                    !claimReceipt.isLoading;
 
                   return (
                     <div key={i} style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
@@ -274,6 +307,8 @@ export default function Home() {
                           title={
                             m.claimed
                               ? "Already claimed"
+                              : setupMode
+                              ? "Setup required"
                               : !isConnected
                               ? "Connect wallet"
                               : !isOwner

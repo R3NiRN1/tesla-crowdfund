@@ -17,10 +17,14 @@ export default function FundCampaign({
   token,
   campaign,
   onContributed,
+  disabled = false,
+  disabledReason,
 }: {
   token: `0x${string}`;
   campaign: `0x${string}`;
   onContributed?: () => void;
+  disabled?: boolean;
+  disabledReason?: string;
 }) {
   const { address, isConnected } = useAccount();
   const [amountText, setAmountText] = useState("10");
@@ -141,7 +145,7 @@ export default function FundCampaign({
   }, [contribReceipt.data, refetch, onContributed]);
 
   const onApprove = async () => {
-    if (!isConnected || !address) return;
+    if (disabled || !isConnected || !address) return;
     if (parsedAmount <= 0n) return;
 
     try {
@@ -164,7 +168,7 @@ export default function FundCampaign({
   };
 
   const onContribute = async () => {
-    if (!isConnected || !address) return;
+    if (disabled || !isConnected || !address) return;
     if (parsedAmount <= 0n) return;
 
     try {
@@ -185,6 +189,25 @@ export default function FundCampaign({
       console.error(e);
     }
   };
+
+  if (disabled) {
+    return (
+      <div
+        style={{
+          border: "1px solid #f59e0b",
+          borderRadius: 12,
+          padding: 12,
+          marginTop: 12,
+          background: "#fffbeb",
+        }}
+      >
+        <b>Funding disabled</b>
+        <div style={{ marginTop: 6, fontSize: 13, color: "#92400e" }}>
+          {disabledReason || "Setup required to enable funding actions."}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12, marginTop: 12 }}>
