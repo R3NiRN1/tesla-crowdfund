@@ -47,9 +47,7 @@ export function useNetworkGuard(): NetworkGuardState {
       message = "Missing NEXT_PUBLIC_CHAIN_ID. Configure it to enable write actions.";
     }
     if (isWrongNetwork) {
-      message = `Wrong network: expected ${expectedLabel ?? expectedChainId} (${expectedChainId}), got ${
-        actualLabel ?? actualChainId
-      } (${actualChainId}).`;
+      message = `Wrong network: expected ${expectedChainId}, got ${actualChainId}. Please switch network in your wallet.`;
     }
 
     return {

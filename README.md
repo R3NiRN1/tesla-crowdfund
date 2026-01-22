@@ -1,15 +1,15 @@
 # Tesla Crowdfund — Hardhat + Next.js Monorepo
 
-This repository contains a full-stack **BNB Smart Chain (BSC) testnet** dApp.
+This repository contains a full-stack **BNB Smart Chain (BSC) testnet + mainnet** dApp.
 
 It is built to work **exclusively with the TeslaCoin (ERC-20 compatible) token**
-deployed on **BNB Smart Chain test networks**.
+deployed on **BNB Smart Chain testnet and mainnet**.
 
 ---
 
 ## Tech Stack
 
-- **Hardhat** — smart contracts, scripts, and tests (BSC testnet)
+- **Hardhat** — smart contracts, scripts, and tests (BSC testnet + mainnet)
 - **Next.js** — frontend application (`/frontend`)
 - **TeslaCoin ERC-20** — the only supported token
 
@@ -50,27 +50,10 @@ This repo is structured for local development and testing while keeping secrets 
 
 See the full install guide: [docs/INSTALL.md](docs/INSTALL.md).
 
-```bash
-npm install
-cp .env.example .env
-npm run compile
-```
-
-Frontend:
-
-```bash
-cd frontend
-npm install
-cp .env.example .env.local
-npm run dev
-```
-
----
-
 ## Happy Path (from a fresh clone)
 
 ```bash
-npm install
+npm ci
 cp .env.example .env
 cp frontend/.env.example frontend/.env.local
 npm run preflight # or: ENV_FILE=frontend/.env.local npm run preflight
@@ -103,11 +86,15 @@ Frontend (Next.js):
 cd frontend
 cp .env.example .env.local
 
+⚠️ **Do not change only `NEXT_PUBLIC_CHAIN_ID`.** Your `NEXT_PUBLIC_RPC_URL`,
+`NEXT_PUBLIC_FACTORY_ADDRESS`, `NEXT_PUBLIC_TOKEN_ADDRESS`, and
+`NEXT_PUBLIC_BSCSCAN_BASE` must match the same network.
+
 Never commit real `.env` files.
 
 ---
 
-## Smart Contracts (Hardhat — BNB Smart Chain Testnet)
+## Smart Contracts (Hardhat — BNB Smart Chain Testnet/Mainnet)
 
 Compile:
 npx hardhat compile
@@ -119,7 +106,7 @@ Local node:
 npx hardhat node
 
 Deploy:
-npx hardhat run scripts/deploy.ts --network localhost
+npm run deploy:testnet
 
 ---
 
@@ -147,6 +134,15 @@ App runs at http://localhost:3000
 - **Deploys are blocked unless you set** `CONFIRM_MAINNET=YES` in your root `.env`.
 - Always do a small test tx, verify addresses, and confirm gas settings before deploying.
 - Run: `npm run preflight` → `CONFIRM_MAINNET=YES npm run deploy:mainnet`.
+
+---
+
+## Mainnet Checklist (short + strict)
+
+- ✅ Confirm `NEXT_PUBLIC_RPC_URL`, `NEXT_PUBLIC_CHAIN_ID=56`, contract addresses, and BscScan base are all mainnet.
+- ✅ Run `npm run preflight` and fix any errors (including RPC chainId mismatch).
+- ✅ Verify deployer address + balance, and set `CONFIRM_MAINNET=YES`.
+- ✅ Deploy with `npm run deploy:mainnet`, then update `frontend/.env.local` and rebuild.
 
 ---
 

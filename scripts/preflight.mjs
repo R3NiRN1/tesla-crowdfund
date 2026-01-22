@@ -2,16 +2,16 @@ import fs from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
 
-function loadEnvFile(filePath) {
+function loadEnvFile(filePath, override = false) {
   if (!filePath) return;
   const resolvedPath = path.resolve(process.cwd(), filePath);
   if (!fs.existsSync(resolvedPath)) return;
-  dotenv.config({ path: resolvedPath, override: false });
+  dotenv.config({ path: resolvedPath, override });
 }
 
-loadEnvFile(process.env.ENV_FILE);
 loadEnvFile(".env");
 loadEnvFile("frontend/.env.local");
+loadEnvFile(process.env.ENV_FILE, true);
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
@@ -52,7 +52,7 @@ const chainId = Number(chainIdRaw);
 if (!Number.isFinite(chainId)) {
   errors.push("NEXT_PUBLIC_CHAIN_ID must be numeric.");
 } else if (chainId !== 56 && chainId !== 97) {
-  warnings.push(`NEXT_PUBLIC_CHAIN_ID is ${chainId} (expected 56 or 97 for BSC).`);
+  errors.push(`NEXT_PUBLIC_CHAIN_ID must be 56 or 97 (got ${chainId}).`);
 }
 
 if (!bscscanBase.startsWith("http")) {

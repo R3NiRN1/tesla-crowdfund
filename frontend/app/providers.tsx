@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { WagmiProvider, http, createConfig } from "wagmi";
-import { bscTestnet } from "wagmi/chains";
+import { WagmiProvider, createConfig, http } from "wagmi";
 import { injected } from "wagmi/connectors";
+import { type Transport } from "viem";
+import { bsc, bscTestnet } from "wagmi/chains";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RainbowKitProvider, getDefaultConfig } from "@rainbow-me/rainbowkit";
 import "@rainbow-me/rainbowkit/styles.css";
@@ -18,21 +19,30 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     if (!mounted) return null;
     const publicConfig = getPublicConfig();
     const transports = {
-      [bscTestnet.id]: publicConfig.rpcUrl ? http(publicConfig.rpcUrl) : http(),
-    };
+      [bsc.id]: http(
+        publicConfig.chainId === bsc.id && publicConfig.rpcUrl
+          ? publicConfig.rpcUrl
+          : undefined
+      ),
+      [bscTestnet.id]: http(
+        publicConfig.chainId === bscTestnet.id && publicConfig.rpcUrl
+          ? publicConfig.rpcUrl
+          : undefined
+      ),
+    } satisfies Record<56 | 97, Transport>;
 
     if (publicConfig.wcEnabled && publicConfig.wcProjectId) {
       return getDefaultConfig({
         appName: "TES Crowdfund",
         projectId: publicConfig.wcProjectId,
-        chains: [bscTestnet],
+        chains: [bsc, bscTestnet],
         transports,
         ssr: false,
       });
     }
 
     return createConfig({
-      chains: [bscTestnet],
+      chains: [bsc, bscTestnet],
       connectors: [injected()],
       transports,
       ssr: false,

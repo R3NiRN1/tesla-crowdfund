@@ -1,7 +1,7 @@
 import { createPublicClient, http } from "viem";
-import { getBscTestnetChain } from "./chain";
+import { getBscChain } from "./chain";
 
 export const publicClient = createPublicClient({
-  chain: getBscTestnetChain(),
+  chain: getBscChain(),
   transport: http(process.env.NEXT_PUBLIC_RPC_URL),
 });
