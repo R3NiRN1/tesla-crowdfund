@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { WagmiProvider, http } from "wagmi";
 import { type Transport } from "viem";
-import { bsc, bscTestnet } from "viem/chains";
+import { bsc, bscTestnet } from "wagmi/chains";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RainbowKitProvider, getDefaultConfig } from "@rainbow-me/rainbowkit";
 import "@rainbow-me/rainbowkit/styles.css";
@@ -15,26 +15,18 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   const queryClient = useMemo(() => new QueryClient(), []);
 
   const projectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID;
-  const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL;
-  const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID || bscTestnet.id);
-
   const config = useMemo(() => {
     if (!mounted) return null;
     const publicConfig = getPublicConfig();
-    const chain = publicConfig.chainId === 56 ? bsc : bscTestnet;
-    const transports = {
-      [chain.id]: publicConfig.rpcUrl ? http(publicConfig.rpcUrl) : http(),
-    };
-
     const transports = {
       [bsc.id]: http(
-        chainId === bsc.id && rpcUrl
-          ? rpcUrl
+        publicConfig.chainId === bsc.id && publicConfig.rpcUrl
+          ? publicConfig.rpcUrl
           : undefined
       ),
       [bscTestnet.id]: http(
-        chainId === bscTestnet.id && rpcUrl
-          ? rpcUrl
+        publicConfig.chainId === bscTestnet.id && publicConfig.rpcUrl
+          ? publicConfig.rpcUrl
           : undefined
       ),
     } satisfies Record<56 | 97, Transport>;
@@ -46,7 +38,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       transports,
       ssr: false,
     });
-  }, [mounted, projectId, rpcUrl, chainId]);
+  }, [mounted, projectId]);
 
   useEffect(() => setMounted(true), []);
 
