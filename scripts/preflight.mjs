@@ -1,6 +1,17 @@
+import fs from "node:fs";
+import path from "node:path";
 import dotenv from "dotenv";
 
-dotenv.config();
+function loadEnvFile(filePath) {
+  if (!filePath) return;
+  const resolvedPath = path.resolve(process.cwd(), filePath);
+  if (!fs.existsSync(resolvedPath)) return;
+  dotenv.config({ path: resolvedPath, override: false });
+}
+
+loadEnvFile(process.env.ENV_FILE);
+loadEnvFile(".env");
+loadEnvFile("frontend/.env.local");
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
