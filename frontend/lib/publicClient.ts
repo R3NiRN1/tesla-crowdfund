@@ -1,12 +1,14 @@
 // frontend/lib/publicClient.ts
 import { createPublicClient, http, defineChain } from "viem";
 import { getPublicConfig } from "./publicConfig";
+import { getStoredConfig } from "./storedConfig";
 
 const fallbackChainId = 97;
 const fallbackRpcUrl = "https://bsc-testnet.publicnode.com";
 
 export function getPublicClient() {
-  const publicConfig = getPublicConfig();
+  const storedConfig = typeof window === "undefined" ? null : getStoredConfig();
+  const publicConfig = getPublicConfig(storedConfig);
   const chainId = publicConfig.chainId ?? fallbackChainId;
 
   const bsc = defineChain({

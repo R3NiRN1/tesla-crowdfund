@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
 
@@ -10,11 +11,13 @@ import FundCampaign from "@/components/FundCampaign";
 import WalletBar from "@/components/WalletBar";
 import ConnectWallet from "@/components/ConnectWallet";
 import NetworkGuard from "@/components/NetworkGuard";
+import SetupBanner from "@/components/SetupBanner";
 
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { campaignWriteAbi } from "@/lib/campaignWriteAbi";
-import { getPublicConfig, ZERO_ADDRESS } from "@/lib/publicConfig";
+import { ZERO_ADDRESS } from "@/lib/publicConfig";
 import { useNetworkGuard } from "@/lib/useNetworkGuard";
+import { usePublicConfig } from "@/lib/usePublicConfig";
 
 function short(addr?: string) {
   if (!addr) return "—";
@@ -22,7 +25,7 @@ function short(addr?: string) {
 }
 
 export default function Home() {
-  const publicConfig = getPublicConfig();
+  const publicConfig = usePublicConfig();
   const explorer = publicConfig.bscscanBase || "https://testnet.bscscan.com";
   const setupMode = !publicConfig.isConfigured;
   const networkGuard = useNetworkGuard();
@@ -127,7 +130,14 @@ export default function Home() {
   return (
     <main style={{ padding: 24, fontFamily: "system-ui" }}>
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <h1 style={{ margin: 0 }}>TES Crowdfund – Testnet Explorer</h1>
+        <div>
+          <h1 style={{ margin: 0 }}>TES Crowdfund – Testnet Explorer</h1>
+          <div style={{ display: "flex", gap: 12, fontSize: 14, marginTop: 6 }}>
+            <Link href="/setup">Setup</Link>
+            <Link href="/campaigns">Campaign drafts</Link>
+            <Link href="/admin">Admin</Link>
+          </div>
+        </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <WalletBar />
           <ConnectWallet />
@@ -135,23 +145,7 @@ export default function Home() {
       </header>
 
       <NetworkGuard />
-
-      {setupMode && (
-        <div
-          style={{
-            marginBottom: 16,
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "1px solid #f59e0b",
-            background: "#fffbeb",
-            color: "#92400e",
-            fontSize: 14,
-          }}
-        >
-          Setup required: contract addresses not configured. Update NEXT_PUBLIC_FACTORY_ADDRESS and
-          NEXT_PUBLIC_TOKEN_ADDRESS to enable write actions.
-        </div>
-      )}
+      <SetupBanner />
 
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 18, fontSize: 14 }}>
         <span>
@@ -198,153 +192,75 @@ export default function Home() {
                 <div style={{ fontSize: 13, opacity: 0.8 }}>{short(a)}</div>
               </button>
             ))}
-            {addresses.length === 0 && <div style={{ opacity: 0.7 }}>No campaigns yet.</div>}
           </div>
         </div>
 
-        {/* RIGHT: selected campaign */}
-        <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 16 }}>
-          {!selected ? (
-            <p>Select a campaign.</p>
-          ) : !campaign ? (
-            <p>Loading campaign…</p>
-          ) : (
+        {/* RIGHT: campaign detail */}
+        <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
+          {!campaign && !loading && <p>No campaign selected.</p>}
+          {campaign && (
             <>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                <h2 style={{ margin: 0 }}>Campaign</h2>
-                <a href={`${explorer}/address/${campaign.address}`} target="_blank" rel="noreferrer">
-                  {short(campaign.address)}
-                </a>
+              <h2 style={{ marginTop: 0 }}>{campaign.name}</h2>
+              <p style={{ marginTop: 4 }}>{campaign.description}</p>
+
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 14 }}>
+                <span>Owner: {short(campaign.owner)}</span>
+                <span>Goal: {stats?.goal} TES</span>
+                <span>Raised: {stats?.raised} TES</span>
+                <span>Progress: {stats?.pct.toFixed(1)}%</span>
               </div>
 
-              <p style={{ marginTop: 10 }}>{campaign.description}</p>
-
-              <div style={{ marginTop: 12, display: "flex", gap: 14, flexWrap: "wrap" }}>
-                <div>
-                  <b>Owner:</b>{" "}
-                  <a href={`${explorer}/address/${campaign.owner}`} target="_blank" rel="noreferrer">
-                    {short(campaign.owner)}
-                  </a>
-                </div>
-                <div>
-                  <b>Deadline:</b> {new Date(Number(campaign.deadline) * 1000).toLocaleString()}
-                </div>
-              </div>
-
-              {stats && (
-                <>
-                  <h3 style={{ marginTop: 18 }}>Funding</h3>
-                  <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
-                    <div style={{ marginBottom: 8 }}>
-                      <b>Raised:</b> {stats.raised.toLocaleString()} / {stats.goal.toLocaleString()} TES
-                    </div>
-                    <div style={{ height: 10, background: "#eee", borderRadius: 999 }}>
-                      <div style={{ width: `${stats.pct}%`, height: 10, background: "#111", borderRadius: 999 }} />
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {/* Funding actions (Approve + Contribute) */}
-              {tokenAddress ? (
+              <div style={{ marginTop: 16 }}>
                 <FundCampaign
-                  token={tokenAddress}
-                  campaign={campaign.address}
-                  onContributed={() => refreshSelectedCampaign(campaign.address)}
-                  disabled={setupMode || networkGuard.blockWrites}
-                  disabledReason={
-                    setupMode
-                      ? "Setup required: contract addresses not configured."
-                      : networkGuard.message || "Wrong network: switch to the expected chain."
-                  }
+                  campaign={campaign}
+                  tokenAddress={tokenAddress}
+                  setupMode={setupMode}
+                  networkGuard={networkGuard}
                 />
-              ) : (
-                <div style={{ marginTop: 12, color: "crimson" }}>
-                  Missing token address (factory token not loaded and NEXT_PUBLIC_TOKEN_ADDRESS not set).
+              </div>
+
+              {isOwner && campaign.milestones.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <h3 style={{ margin: 0 }}>Milestones</h3>
+                  <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                    {campaign.milestones.map((m, i) => {
+                      const isClaimed = campaign.milestonePaid[i];
+                      return (
+                        <div
+                          key={`${m.title}-${i}`}
+                          style={{
+                            border: "1px solid #e5e7eb",
+                            borderRadius: 10,
+                            padding: 10,
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 600 }}>{m.title}</div>
+                            <div style={{ fontSize: 13, opacity: 0.7 }}>{formatUnits(m.amount, 18)} TES</div>
+                          </div>
+                          <button
+                            onClick={() => claimMilestone(i)}
+                            disabled={setupMode || networkGuard.blockWrites || !goalReached || isClaimed || claimPending}
+                            style={{
+                              padding: "6px 10px",
+                              borderRadius: 8,
+                              border: "1px solid #d1d5db",
+                              background: isClaimed ? "#f3f4f6" : "white",
+                              cursor: setupMode || networkGuard.blockWrites || isClaimed ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {isClaimed ? "Claimed" : goalReached ? "Claim milestone" : "Goal not reached"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {claimError && <div style={{ color: "crimson", marginTop: 8 }}>Error: {claimError.message}</div>}
                 </div>
               )}
-
-              <h3 style={{ marginTop: 18 }}>Milestones</h3>
-
-              {/* Claim status/help */}
-              <div style={{ marginBottom: 10, fontSize: 12, opacity: 0.8, lineHeight: 1.4 }}>
-                <div>
-                  Claiming is available only to the campaign owner and only after the goal is reached.
-                </div>
-                {!isConnected && <div>Connect wallet to claim.</div>}
-                {isConnected && !isOwner && <div>Connected wallet is not the owner.</div>}
-                {isConnected && isOwner && !goalReached && <div>Goal not reached yet.</div>}
-                {claimError && <div style={{ color: "crimson" }}>{String((claimError as any)?.message || claimError)}</div>}
-              </div>
-
-              <div style={{ display: "grid", gap: 10 }}>
-                {campaign.milestones.map((m, i) => {
-                  const canClaim =
-                    !setupMode &&
-                    !networkGuard.blockWrites &&
-                    isConnected &&
-                    isOwner &&
-                    goalReached &&
-                    !m.claimed &&
-                    !claimPending &&
-                    !claimReceipt.isLoading;
-
-                  return (
-                    <div key={i} style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-                        <b>#{i + 1}</b>
-                        <span>{m.claimed ? "✅ claimed" : "⏳ not claimed"}</span>
-                      </div>
-
-                      <div style={{ marginTop: 6 }}>{m.description}</div>
-
-                      <div style={{ marginTop: 6 }}>
-                        <b>Amount:</b> {Number(formatUnits(m.amount, 18)).toLocaleString()} TES
-                      </div>
-
-                      <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                        <button
-                          onClick={() => claimMilestone(i)}
-                          disabled={!canClaim}
-                          style={{
-                            padding: "8px 12px",
-                            borderRadius: 10,
-                            border: "1px solid #111",
-                            background: "white",
-                            cursor: "pointer",
-                            opacity: canClaim ? 1 : 0.5,
-                          }}
-                          title={
-                            m.claimed
-                              ? "Already claimed"
-                              : setupMode
-                              ? "Setup required"
-                              : !isConnected
-                              ? "Connect wallet"
-                              : !isOwner
-                              ? "Only owner can claim"
-                              : !goalReached
-                              ? "Goal not reached"
-                              : "Claim this milestone"
-                          }
-                        >
-                          {claimReceipt.isLoading ? "Claiming…" : "Claim"}
-                        </button>
-
-                        {claimHash && (
-                          <span style={{ fontSize: 12, opacity: 0.8 }}>
-                            Tx:{" "}
-                            <a href={`${explorer}/tx/${claimHash}`} target="_blank" rel="noreferrer">
-                              {short(claimHash)}
-                            </a>{" "}
-                            {claimReceipt.data?.status === "success" ? "✅" : claimReceipt.isLoading ? "⏳" : ""}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
             </>
           )}
         </div>

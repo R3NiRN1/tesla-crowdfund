@@ -1,8 +1,10 @@
+import { type StoredConfig } from "./storedConfig";
+
 export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 
-type PublicConfig = {
+export type PublicConfig = {
   chainId: number | null;
   rpcUrl: string | null;
   factoryAddress: string;
@@ -32,41 +34,65 @@ function parseAddress(value: string | undefined): ParsedAddress {
   return { value: trimmed, isValid: true, isZero };
 }
 
-export function getPublicConfig(): PublicConfig {
+function normalizeConfigValues(storedConfig?: StoredConfig | null) {
   const chainIdRaw = process.env.NEXT_PUBLIC_CHAIN_ID?.trim() ?? "";
   const chainId = chainIdRaw ? Number(chainIdRaw) : null;
   const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL?.trim() || null;
-
-  const factoryAddress = parseAddress(process.env.NEXT_PUBLIC_FACTORY_ADDRESS);
-  const tokenAddress = parseAddress(process.env.NEXT_PUBLIC_TOKEN_ADDRESS);
-
   const bscscanBase = process.env.NEXT_PUBLIC_BSCSCAN_BASE?.trim() || null;
   const wcEnabled = process.env.NEXT_PUBLIC_WC_ENABLED === "true";
   const wcProjectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID?.trim() || null;
 
-  const isChainIdValid = Number.isFinite(chainId ?? NaN);
-  const resolvedChainId = isChainIdValid ? (chainId as number) : null;
+  const hasStored = storedConfig !== undefined && storedConfig !== null;
+
+  const resolvedChainId = hasStored ? storedConfig.chainId : chainId;
+  const resolvedRpcUrl = hasStored ? storedConfig.rpcUrl : rpcUrl;
+  const resolvedBscscan = hasStored ? storedConfig.bscscanBase : bscscanBase;
+  const resolvedWcEnabled = hasStored ? storedConfig.wcEnabled : wcEnabled;
+  const resolvedWcProjectId = hasStored ? storedConfig.wcProjectId : wcProjectId;
+
+  const factorySource = hasStored ? storedConfig.factoryAddress : process.env.NEXT_PUBLIC_FACTORY_ADDRESS;
+  const tokenSource = hasStored ? storedConfig.tokenAddress : process.env.NEXT_PUBLIC_TOKEN_ADDRESS;
+
+  return {
+    chainId: resolvedChainId,
+    rpcUrl: resolvedRpcUrl,
+    bscscanBase: resolvedBscscan,
+    wcEnabled: resolvedWcEnabled,
+    wcProjectId: resolvedWcProjectId,
+    factorySource,
+    tokenSource,
+  };
+}
+
+export function getPublicConfig(storedConfig?: StoredConfig | null): PublicConfig {
+  const resolved = normalizeConfigValues(storedConfig);
+
+  const factoryAddress = parseAddress(resolved.factorySource);
+  const tokenAddress = parseAddress(resolved.tokenSource);
+
+  const isChainIdValid = Number.isFinite(resolved.chainId ?? NaN);
+  const resolvedChainId = isChainIdValid ? (resolved.chainId as number) : null;
 
   const missing: string[] = [];
   if (!resolvedChainId) missing.push("NEXT_PUBLIC_CHAIN_ID");
-  if (!rpcUrl) missing.push("NEXT_PUBLIC_RPC_URL");
+  if (!resolved.rpcUrl) missing.push("NEXT_PUBLIC_RPC_URL");
   if (!factoryAddress.isValid || factoryAddress.value === ZERO_ADDRESS) missing.push("NEXT_PUBLIC_FACTORY_ADDRESS");
   if (!tokenAddress.isValid || tokenAddress.value === ZERO_ADDRESS) missing.push("NEXT_PUBLIC_TOKEN_ADDRESS");
 
   const isConfigured =
-    !!rpcUrl &&
+    !!resolved.rpcUrl &&
     !!resolvedChainId &&
     factoryAddress.value !== ZERO_ADDRESS &&
     tokenAddress.value !== ZERO_ADDRESS;
 
   return {
     chainId: resolvedChainId,
-    rpcUrl,
+    rpcUrl: resolved.rpcUrl,
     factoryAddress: factoryAddress.value,
     tokenAddress: tokenAddress.value,
-    bscscanBase,
-    wcEnabled,
-    wcProjectId,
+    bscscanBase: resolved.bscscanBase,
+    wcEnabled: resolved.wcEnabled,
+    wcProjectId: resolved.wcProjectId,
     isConfigured,
     missing,
   };

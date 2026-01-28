@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useAccount, useChainId } from "wagmi";
 
-import { getPublicConfig } from "./publicConfig";
+import { usePublicConfig } from "./usePublicConfig";
 
 const chainLabels: Record<number, string> = {
   56: "BSC Mainnet",
@@ -29,7 +29,7 @@ export type NetworkGuardState = {
 export function useNetworkGuard(): NetworkGuardState {
   const { isConnected } = useAccount();
   const connectedChainId = useChainId();
-  const publicConfig = getPublicConfig();
+  const publicConfig = usePublicConfig();
 
   return useMemo(() => {
     const expectedChainId = publicConfig.chainId ?? null;
@@ -44,10 +44,12 @@ export function useNetworkGuard(): NetworkGuardState {
 
     let message: string | null = null;
     if (isMisconfigured) {
-      message = "Missing NEXT_PUBLIC_CHAIN_ID. Configure it to enable write actions.";
+      message = "Missing chain configuration. Complete setup to enable write actions.";
     }
     if (isWrongNetwork) {
-      message = `Wrong network: expected ${expectedChainId}, got ${actualChainId}. Please switch network in your wallet.`;
+      message = `Wrong network: expected ${expectedLabel ?? expectedChainId} (${expectedChainId}), got ${
+        actualLabel ?? actualChainId
+      } (${actualChainId}). Please switch network in your wallet.`;
     }
 
     return {
