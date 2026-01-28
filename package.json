@@ -8,8 +8,12 @@
     "preflight": "node scripts/preflight.mjs",
     "test:contracts": "hardhat test",
     "build:frontend": "bash -c \"cd frontend && npm ci && npm run build\"",
-    "deploy:testnet": "npm run preflight && hardhat run scripts/deployFactory.ts --network bscTestnet",
-    "deploy:mainnet": "npm run preflight && node scripts/requireMainnetConfirm.mjs && hardhat run scripts/deployFactory.ts --network bscMainnet"
+    "deploy:testnet": "npm run preflight && hardhat run scripts/deploy.ts --network bscTestnet",
+    "deploy:mainnet": "npm run preflight && node scripts/requireMainnetConfirm.mjs && hardhat run scripts/deploy.ts --network bscMainnet",
+    "verify:testnet": "hardhat run scripts/verify.ts --network bscTestnet",
+    "verify:mainnet": "hardhat run scripts/verify.ts --network bscMainnet",
+    "smoke:testnet": "hardhat run scripts/smoke.ts --network bscTestnet",
+    "smoke:mainnet": "hardhat run scripts/smoke.ts --network bscMainnet"
   },
   "keywords": [],
   "author": "",
