@@ -211,7 +211,7 @@ export default function Home() {
           ) : (
             <>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                <h2 style={{ margin: 0 }}>Campaign</h2>
+                <h2 style={{ margin: 0 }}>Campaign {short(campaign.address)}</h2>
                 <a href={`${explorer}/address/${campaign.address}`} target="_blank" rel="noreferrer">
                   {short(campaign.address)}
                 </a>
