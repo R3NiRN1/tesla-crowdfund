@@ -19,13 +19,22 @@ const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const errors = [];
 const warnings = [];
 
-function readEnv(name) {
+function readRequiredEnv(name, message) {
   const value = process.env[name];
   if (!value || !value.trim()) {
-    errors.push(`${name} is required (use ${ZERO_ADDRESS} for placeholders).`);
+    errors.push(message);
     return "";
   }
   return value.trim();
+}
+
+function isHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function validateAddress(name, value) {
@@ -39,11 +48,26 @@ function validateAddress(name, value) {
   }
 }
 
-const rpcUrl = readEnv("NEXT_PUBLIC_RPC_URL");
-const chainIdRaw = readEnv("NEXT_PUBLIC_CHAIN_ID");
-const factoryAddress = readEnv("NEXT_PUBLIC_FACTORY_ADDRESS");
-const tokenAddress = readEnv("NEXT_PUBLIC_TOKEN_ADDRESS");
-const bscscanBase = readEnv("NEXT_PUBLIC_BSCSCAN_BASE");
+const rpcUrl = readRequiredEnv(
+  "NEXT_PUBLIC_RPC_URL",
+  "NEXT_PUBLIC_RPC_URL is required and must be an http(s) URL."
+);
+const chainIdRaw = readRequiredEnv(
+  "NEXT_PUBLIC_CHAIN_ID",
+  "NEXT_PUBLIC_CHAIN_ID is required and must be 56 or 97."
+);
+const factoryAddress = readRequiredEnv(
+  "NEXT_PUBLIC_FACTORY_ADDRESS",
+  `NEXT_PUBLIC_FACTORY_ADDRESS is required (use ${ZERO_ADDRESS} for setup mode).`
+);
+const tokenAddress = readRequiredEnv(
+  "NEXT_PUBLIC_TOKEN_ADDRESS",
+  `NEXT_PUBLIC_TOKEN_ADDRESS is required (use ${ZERO_ADDRESS} for setup mode).`
+);
+const bscscanBase = readRequiredEnv(
+  "NEXT_PUBLIC_BSCSCAN_BASE",
+  "NEXT_PUBLIC_BSCSCAN_BASE is required and must be an http(s) URL."
+);
 
 const wcEnabled = process.env.NEXT_PUBLIC_WC_ENABLED === "true";
 const wcProjectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID?.trim() || "";
@@ -55,8 +79,15 @@ if (!Number.isFinite(chainId)) {
   errors.push(`NEXT_PUBLIC_CHAIN_ID must be 56 or 97 (got ${chainId}).`);
 }
 
-if (!bscscanBase.startsWith("http")) {
-  warnings.push("NEXT_PUBLIC_BSCSCAN_BASE should be an http(s) URL.");
+const rpcUrlIsValid = !!rpcUrl && isHttpUrl(rpcUrl);
+const bscscanBaseIsValid = !!bscscanBase && isHttpUrl(bscscanBase);
+
+if (rpcUrl && !rpcUrlIsValid) {
+  errors.push("NEXT_PUBLIC_RPC_URL must be a valid http(s) URL.");
+}
+
+if (bscscanBase && !bscscanBaseIsValid) {
+  errors.push("NEXT_PUBLIC_BSCSCAN_BASE must be a valid http(s) URL.");
 }
 
 validateAddress("NEXT_PUBLIC_FACTORY_ADDRESS", factoryAddress);
@@ -71,7 +102,7 @@ if (!wcEnabled && !wcProjectId) {
 }
 
 async function checkRpcChainId() {
-  if (!rpcUrl || !Number.isFinite(chainId)) return;
+  if (!rpcUrlIsValid || !Number.isFinite(chainId)) return;
 
   try {
     const response = await fetch(rpcUrl, {
