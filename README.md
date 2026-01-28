@@ -108,6 +108,25 @@ npx hardhat node
 Deploy:
 npm run deploy:testnet
 
+### Deploy flow (recommended)
+
+Testnet:
+
+1) `npm run preflight`
+2) `npm run deploy:testnet`
+3) `npm run smoke:testnet`
+4) `npm run verify:testnet`
+
+Mainnet (guarded):
+
+1) `npm run preflight`
+2) `CONFIRM_MAINNET=YES npm run deploy:mainnet`
+3) `npm run smoke:mainnet`
+4) `npm run verify:mainnet`
+
+Deployments are saved to `deployments/<network>.json`. Use `--force` with the deploy
+script to overwrite an existing deployment file.
+
 ---
 
 ## Frontend (Next.js)
