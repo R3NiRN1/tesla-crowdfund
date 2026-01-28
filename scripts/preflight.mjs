@@ -72,11 +72,13 @@ const bscscanBase = readRequiredEnv(
 const wcEnabled = process.env.NEXT_PUBLIC_WC_ENABLED === "true";
 const wcProjectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID?.trim() || "";
 
-const chainId = Number(chainIdRaw);
-if (!Number.isFinite(chainId)) {
-  errors.push("NEXT_PUBLIC_CHAIN_ID must be numeric.");
-} else if (chainId !== 56 && chainId !== 97) {
-  errors.push(`NEXT_PUBLIC_CHAIN_ID must be 56 or 97 (got ${chainId}).`);
+const chainId = chainIdRaw ? Number(chainIdRaw) : Number.NaN;
+if (chainIdRaw) {
+  if (!Number.isFinite(chainId)) {
+    errors.push("NEXT_PUBLIC_CHAIN_ID must be numeric.");
+  } else if (chainId !== 56 && chainId !== 97) {
+    errors.push(`NEXT_PUBLIC_CHAIN_ID must be 56 or 97 (got ${chainId}).`);
+  }
 }
 
 const rpcUrlIsValid = !!rpcUrl && isHttpUrl(rpcUrl);
@@ -102,7 +104,8 @@ if (!wcEnabled && !wcProjectId) {
 }
 
 async function checkRpcChainId() {
-  if (!rpcUrlIsValid || !Number.isFinite(chainId)) return;
+  const chainIdIsValid = chainId === 56 || chainId === 97;
+  if (!rpcUrlIsValid || !chainIdIsValid) return;
 
   try {
     const response = await fetch(rpcUrl, {
