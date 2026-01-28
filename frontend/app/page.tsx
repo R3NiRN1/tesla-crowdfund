@@ -249,7 +249,7 @@ export default function Home() {
               {tokenAddress ? (
                 <FundCampaign
                   token={tokenAddress}
-                  campaign={campaign.address}
+                  campaignAddress={campaign.address}
                   onContributed={() => refreshSelectedCampaign(campaign.address)}
                   disabled={setupMode || networkGuard.blockWrites}
                   disabledReason={

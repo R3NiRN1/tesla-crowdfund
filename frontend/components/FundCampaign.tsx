@@ -15,13 +15,13 @@ function short(addr?: string) {
 
 export default function FundCampaign({
   token,
-  campaign,
+  campaignAddress,
   onContributed,
   disabled = false,
   disabledReason,
 }: {
   token: `0x${string}`;
-  campaign: `0x${string}`;
+  campaignAddress: `0x${string}`;
   onContributed?: () => void;
   disabled?: boolean;
   disabledReason?: string;
@@ -56,12 +56,12 @@ export default function FundCampaign({
       // allowance(owner, spender)
       address
         ? {
-            address: token,
-            abi: erc20Abi,
-            functionName: "allowance",
-            args: [address, campaign],
-          }
-        : undefined,
+          address: token,
+          abi: erc20Abi,
+          functionName: "allowance",
+          args: [address, campaignAddress],
+        }
+      : undefined,
 
       // decimals()
       {
@@ -154,7 +154,7 @@ export default function FundCampaign({
           address: token,
           abi: erc20Abi,
           functionName: "approve",
-          args: [campaign, parsedAmount],
+          args: [campaignAddress, parsedAmount],
         },
         {
           onSuccess(hash) {
@@ -174,7 +174,7 @@ export default function FundCampaign({
     try {
       writeContract(
         {
-          address: campaign,
+          address: campaignAddress,
           abi: campaignWriteAbi,
           functionName: "contribute",
           args: [parsedAmount],
