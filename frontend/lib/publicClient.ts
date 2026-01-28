@@ -1,26 +1,27 @@
 // frontend/lib/publicClient.ts
 import { createPublicClient, http, defineChain } from "viem";
+import { getPublicConfig } from "./publicConfig";
 
-const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID || "97");
+const fallbackChainId = 97;
+const fallbackRpcUrl = "https://bsc-testnet.publicnode.com";
 
-// Minimal BSC testnet chain config (works fine for readContract)
-export const bsc = defineChain({
-  id: chainId,
-  name: chainId === 97 ? "BSC Testnet" : "BSC",
-  nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
-  rpcUrls: {
-    default: {
-      http: [
-        process.env.NEXT_PUBLIC_RPC_URL ||
-          "https://bsc-testnet.publicnode.com",
-      ],
+export function getPublicClient() {
+  const publicConfig = getPublicConfig();
+  const chainId = publicConfig.chainId ?? fallbackChainId;
+
+  const bsc = defineChain({
+    id: chainId,
+    name: chainId === 97 ? "BSC Testnet" : "BSC",
+    nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
+    rpcUrls: {
+      default: {
+        http: [publicConfig.rpcUrl || fallbackRpcUrl],
+      },
     },
-  },
-});
+  });
 
-export const publicClient = createPublicClient({
-  chain: bsc,
-  transport: http(
-    process.env.NEXT_PUBLIC_RPC_URL || "https://bsc-testnet.publicnode.com"
-  ),
-});
+  return createPublicClient({
+    chain: bsc,
+    transport: http(publicConfig.rpcUrl || fallbackRpcUrl),
+  });
+}

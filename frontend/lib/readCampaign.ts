@@ -1,4 +1,4 @@
-import { publicClient } from "./publicClient";
+import { getPublicClient } from "./publicClient";
 import { campaignAbi } from "./campaignAbi";
 
 export type MilestoneView = {
@@ -18,6 +18,7 @@ export type CampaignView = {
 };
 
 export async function readCampaign(address: `0x${string}`): Promise<CampaignView> {
+  const publicClient = getPublicClient();
   const [description, goal, deadline, owner, totalContributed, milestoneCount] = await Promise.all([
     publicClient.readContract({ address, abi: campaignAbi, functionName: "description" }),
     publicClient.readContract({ address, abi: campaignAbi, functionName: "goal" }),

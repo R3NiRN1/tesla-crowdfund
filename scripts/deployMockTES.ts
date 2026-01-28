@@ -1,6 +1,9 @@
 import { ethers } from "hardhat";
+import { assertNetworkSafety } from "./guardrails";
 
 async function main() {
+  await assertNetworkSafety("deployMockTES");
+
   const [deployer] = await ethers.getSigners();
   console.log("Deployer:", deployer.address);
 
