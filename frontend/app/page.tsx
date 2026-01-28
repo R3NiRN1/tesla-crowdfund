@@ -200,14 +200,25 @@ export default function Home() {
           {!campaign && !loading && <p>No campaign selected.</p>}
           {campaign && (
             <>
-              <h2 style={{ marginTop: 0 }}>{campaign.name}</h2>
-              <p style={{ marginTop: 4 }}>{campaign.description}</p>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                <h2 style={{ margin: 0 }}>Campaign {short(campaign.address)}</h2>
+                <a href={`${explorer}/address/${campaign.address}`} target="_blank" rel="noreferrer">
+                  {short(campaign.address)}
+                </a>
+              </div>
 
-              <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 14 }}>
-                <span>Owner: {short(campaign.owner)}</span>
-                <span>Goal: {stats?.goal} TES</span>
-                <span>Raised: {stats?.raised} TES</span>
-                <span>Progress: {stats?.pct.toFixed(1)}%</span>
+              <p style={{ marginTop: 10 }}>{campaign.description}</p>
+
+              <div style={{ marginTop: 12, display: "flex", gap: 14, flexWrap: "wrap" }}>
+                <div>
+                  <b>Owner:</b>{" "}
+                  <a href={`${explorer}/address/${campaign.owner}`} target="_blank" rel="noreferrer">
+                    {short(campaign.owner)}
+                  </a>
+                </div>
+                <div>
+                  <b>Deadline:</b> {new Date(Number(campaign.deadline) * 1000).toLocaleString()}
+                </div>
               </div>
 
               <div style={{ marginTop: 16 }}>
