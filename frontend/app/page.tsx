@@ -227,6 +227,15 @@ export default function Home() {
                   tokenAddress={tokenAddress}
                   setupMode={setupMode}
                   networkGuard={networkGuard}
+                  token={tokenAddress}
+                  campaignAddress={campaign.address}
+                  onContributed={() => refreshSelectedCampaign(campaign.address)}
+                  disabled={setupMode || networkGuard.blockWrites}
+                  disabledReason={
+                    setupMode
+                      ? "Setup required: contract addresses not configured."
+                      : networkGuard.message || "Wrong network: switch to the expected chain."
+                  }
                 />
               </div>
 
