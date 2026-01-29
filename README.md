@@ -137,6 +137,31 @@ npm run dev
 
 App runs at http://localhost:3000
 
+### First run setup wizard (no env edits required)
+
+If you do not have `.env.local` values handy, open the first-run wizard at:
+
+- http://localhost:3000/setup
+
+The wizard stores configuration locally in your browser under
+`teslaCrowdfundConfig:v1` (localStorage). To reset, clear that key in DevTools
+or run:
+
+```
+localStorage.removeItem("teslaCrowdfundConfig:v1")
+```
+
+Routes added for the new UX:
+
+- `/setup` (first-run wizard)
+- `/campaigns` (draft list)
+- `/campaigns/new` (campaign draft builder)
+- `/admin` (local admin dashboard)
+
+⚠️ **Admin dashboard security (MVP):** the admin passphrase is stored locally
+in the browser (localStorage) for now. Treat this as a temporary UX-only gate
+until a real backend/auth flow is implemented.
+
 ---
 
 ## BSC Testnet (97)

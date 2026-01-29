@@ -25,7 +25,7 @@ export default function NetworkGuard() {
     >
       <div style={{ fontWeight: 600 }}>Wrong network detected</div>
       <div>{guard.message}</div>
-      <div>In MetaMask, open the network selector and switch to {guard.expectedLabel}.</div>
+      <div>Switch network in your wallet to {guard.expectedLabel ?? guard.expectedChainId}.</div>
       {guard.expectedChainId !== null && (
         <button
           onClick={() => switchChain({ chainId: guard.expectedChainId! })}

@@ -8,16 +8,16 @@ import { bsc, bscTestnet } from "wagmi/chains";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RainbowKitProvider, getDefaultConfig } from "@rainbow-me/rainbowkit";
 import "@rainbow-me/rainbowkit/styles.css";
-import { getPublicConfig } from "@/lib/publicConfig";
+import { usePublicConfig } from "@/lib/usePublicConfig";
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
+  const publicConfig = usePublicConfig();
 
   const queryClient = useMemo(() => new QueryClient(), []);
 
   const config = useMemo(() => {
     if (!mounted) return null;
-    const publicConfig = getPublicConfig();
     const transports = {
       [bsc.id]: http(
         publicConfig.chainId === bsc.id && publicConfig.rpcUrl
@@ -47,7 +47,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       transports,
       ssr: false,
     });
-  }, [mounted]);
+  }, [mounted, publicConfig]);
 
   useEffect(() => setMounted(true), []);
 

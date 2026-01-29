@@ -1,34 +1,37 @@
 import { getPublicClient } from "./publicClient";
 import { factoryAbi } from "./factoryAbi";
 import { getPublicConfig, ZERO_ADDRESS } from "./publicConfig";
+import { getStoredConfig } from "./storedConfig";
 
-export function getFactoryAddress() {
-  return getPublicConfig().factoryAddress as `0x${string}`;
+function getFactoryAddress() {
+  const storedConfig = typeof window === "undefined" ? null : getStoredConfig();
+  return getPublicConfig(storedConfig).factoryAddress as `0x${string}`;
 }
 
 export async function readFactoryIndex() {
   const factoryAddress = getFactoryAddress();
-  if (factoryAddress.toLowerCase() === ZERO_ADDRESS) {
-    return { token: ZERO_ADDRESS as `0x${string}`, addresses: [] };
-  }
   const publicClient = getPublicClient();
-  const [count, token] = await Promise.all([
+
+  if (!factoryAddress || factoryAddress.toLowerCase() === ZERO_ADDRESS) {
+    return { addresses: [], token: ZERO_ADDRESS };
+  }
+
+  const [campaignCount, token] = await Promise.all([
     publicClient.readContract({ address: factoryAddress, abi: factoryAbi, functionName: "campaignCount" }),
     publicClient.readContract({ address: factoryAddress, abi: factoryAbi, functionName: "token" }),
   ]);
 
-  const n = Number(count);
-
+  const n = Number(campaignCount);
   const addresses = await Promise.all(
-    [...Array(n)].map((_, i) =>
-      publicClient.readContract({
+    [...Array(n)].map(async (_, i) => {
+      return publicClient.readContract({
         address: factoryAddress,
         abi: factoryAbi,
         functionName: "campaigns",
         args: [BigInt(i)],
-      })
-    )
+      });
+    })
   );
 
-  return { token, addresses: addresses as `0x${string}`[] };
+  return { addresses: addresses as `0x${string}`[], token: token as `0x${string}` };
 }
