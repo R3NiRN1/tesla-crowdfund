@@ -58,6 +58,8 @@ Edit `.env.local` with:
 - `NEXT_PUBLIC_BSCSCAN_BASE`
 - `NEXT_PUBLIC_WC_PROJECT_ID`
 
+If you use the `/setup` wizard, the app stores a local browser config that overrides the env values for that browser session.
+
 Never commit real `.env` files.
 
 ## 3) Run Locally
