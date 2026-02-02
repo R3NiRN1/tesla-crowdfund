@@ -18,7 +18,6 @@ type WizardState = {
   tokenAddress: string;
   wcEnabled: boolean;
   wcProjectId: string;
-  adminToken: string;
 };
 
 const initialState: WizardState = {
@@ -29,7 +28,6 @@ const initialState: WizardState = {
   tokenAddress: "",
   wcEnabled: false,
   wcProjectId: "",
-  adminToken: "",
 };
 
 function isValidUrl(value: string) {
@@ -47,17 +45,13 @@ function isValidAddress(value: string) {
   return ADDRESS_REGEX.test(value);
 }
 
-function generateToken() {
-  if (typeof window !== "undefined" && "crypto" in window && "randomUUID" in window.crypto) {
-    return window.crypto.randomUUID();
-  }
-  return `admin-${Math.random().toString(36).slice(2, 12)}-${Date.now().toString(36)}`;
-}
-
 export default function SetupPage() {
   const [step, setStep] = useState<WizardStep>(1);
   const [state, setState] = useState<WizardState>(initialState);
   const [saved, setSaved] = useState(false);
+  const [rpcTestMessage, setRpcTestMessage] = useState<string | null>(null);
+  const [rpcTestStatus, setRpcTestStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = getStoredConfig();
@@ -70,7 +64,6 @@ export default function SetupPage() {
       tokenAddress: stored.tokenAddress ?? "",
       wcEnabled: stored.wcEnabled ?? false,
       wcProjectId: stored.wcProjectId ?? "",
-      adminToken: stored.adminToken ?? "",
     });
   }, []);
 
@@ -111,10 +104,84 @@ export default function SetupPage() {
       tokenAddress: state.tokenAddress.trim(),
       wcEnabled: state.wcEnabled,
       wcProjectId: state.wcProjectId.trim() || null,
-      adminToken: state.adminToken.trim() || null,
     };
     setStoredConfig(payload);
     setSaved(true);
+  };
+
+  const envSnippet = useMemo(() => {
+    const lines = [
+      `NEXT_PUBLIC_RPC_URL=${state.rpcUrl.trim()}`,
+      `NEXT_PUBLIC_CHAIN_ID=${state.chainId ?? ""}`,
+      `NEXT_PUBLIC_FACTORY_ADDRESS=${state.factoryAddress.trim() || ZERO_ADDRESS}`,
+      `NEXT_PUBLIC_TOKEN_ADDRESS=${state.tokenAddress.trim() || ZERO_ADDRESS}`,
+      `NEXT_PUBLIC_BSCSCAN_BASE=${state.bscscanBase.trim()}`,
+      `NEXT_PUBLIC_WC_ENABLED=${state.wcEnabled ? "true" : "false"}`,
+      `NEXT_PUBLIC_WC_PROJECT_ID=${state.wcEnabled ? state.wcProjectId.trim() : ""}`,
+    ];
+    return lines.join("\n");
+  }, [state]);
+
+  const copyEnvSnippet = async () => {
+    setCopyStatus(null);
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(envSnippet);
+        setCopyStatus("Copied env snippet to clipboard.");
+      } else {
+        setCopyStatus("Clipboard unavailable. Select and copy the snippet manually.");
+      }
+    } catch (error) {
+      setCopyStatus(`Copy failed. ${error instanceof Error ? error.message : "Please copy manually."}`);
+    }
+  };
+
+  const testRpc = async () => {
+    if (!isValidUrl(state.rpcUrl)) {
+      setRpcTestStatus("error");
+      setRpcTestMessage("Enter a valid RPC URL first.");
+      return;
+    }
+    if (!state.chainId) {
+      setRpcTestStatus("error");
+      setRpcTestMessage("Select a chain ID to compare against.");
+      return;
+    }
+    setRpcTestStatus("loading");
+    setRpcTestMessage(null);
+    try {
+      const response = await fetch(state.rpcUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }),
+      });
+
+      if (!response.ok) {
+        setRpcTestStatus("error");
+        setRpcTestMessage(`RPC returned ${response.status} ${response.statusText}.`);
+        return;
+      }
+
+      const payload = await response.json();
+      const actual = Number.parseInt(payload?.result ?? "", 16);
+      if (!Number.isFinite(actual)) {
+        setRpcTestStatus("error");
+        setRpcTestMessage("RPC response did not include a valid chain id.");
+        return;
+      }
+
+      if (actual !== state.chainId) {
+        setRpcTestStatus("error");
+        setRpcTestMessage(`Expected chainId ${state.chainId}, got ${actual}.`);
+        return;
+      }
+
+      setRpcTestStatus("success");
+      setRpcTestMessage(`RPC responded with chainId ${actual} (matches).`);
+    } catch (error) {
+      setRpcTestStatus("error");
+      setRpcTestMessage(`RPC test failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   return (
@@ -231,6 +298,34 @@ export default function SetupPage() {
                 )}
               </label>
             </div>
+            <div style={{ marginTop: 12 }}>
+              <button
+                type="button"
+                onClick={testRpc}
+                disabled={rpcTestStatus === "loading" || !isValidUrl(state.rpcUrl)}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #111827",
+                  background: "#111827",
+                  color: "white",
+                  cursor: rpcTestStatus === "loading" || !isValidUrl(state.rpcUrl) ? "not-allowed" : "pointer",
+                }}
+              >
+                {rpcTestStatus === "loading" ? "Testing..." : "Test RPC"}
+              </button>
+              {rpcTestMessage && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    fontSize: 12,
+                    color: rpcTestStatus === "success" ? "#16a34a" : "#dc2626",
+                  }}
+                >
+                  {rpcTestMessage}
+                </div>
+              )}
+            </div>
           </section>
         )}
 
@@ -315,37 +410,38 @@ export default function SetupPage() {
             </div>
 
             <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #e5e7eb" }}>
-              <h3 style={{ marginTop: 0 }}>Admin passphrase</h3>
+              <h3 style={{ marginTop: 0 }}>Frontend env snippet</h3>
               <p style={{ marginTop: 4, color: "#4b5563", fontSize: 13 }}>
-                Set a local admin passphrase to access the admin dashboard. Store it safely.
+                Copy these lines into <code>frontend/.env.local</code> and restart the dev server.
               </p>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <input
-                  value={state.adminToken}
-                  onChange={(event) => setState((prev) => ({ ...prev, adminToken: event.target.value }))}
-                  placeholder="Admin passphrase"
-                  style={{
-                    padding: 8,
-                    borderRadius: 8,
-                    border: "1px solid #d1d5db",
-                    minWidth: 260,
-                    flex: 1,
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setState((prev) => ({ ...prev, adminToken: generateToken() }))}
-                  style={{
-                    padding: "8px 12px",
-                    borderRadius: 8,
-                    border: "1px solid #d1d5db",
-                    background: "white",
-                    cursor: "pointer",
-                  }}
-                >
-                  Generate
-                </button>
-              </div>
+              <pre
+                style={{
+                  margin: 0,
+                  padding: 12,
+                  borderRadius: 8,
+                  background: "#f9fafb",
+                  border: "1px solid #e5e7eb",
+                  whiteSpace: "pre-wrap",
+                  fontSize: 12,
+                }}
+              >
+                {envSnippet}
+              </pre>
+              <button
+                type="button"
+                onClick={copyEnvSnippet}
+                style={{
+                  marginTop: 8,
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #d1d5db",
+                  background: "white",
+                  cursor: "pointer",
+                }}
+              >
+                Copy env snippet
+              </button>
+              {copyStatus && <div style={{ marginTop: 6, fontSize: 12, color: "#2563eb" }}>{copyStatus}</div>}
             </div>
 
             <button

@@ -22,7 +22,7 @@ export default function SetupBanner() {
         lineHeight: 1.5,
       }}
     >
-      <div style={{ fontWeight: 600 }}>Setup required</div>
+      <div style={{ fontWeight: 600 }}>Setup required (read-only mode)</div>
       <div>Complete the first-run wizard to configure chain settings and enable write actions.</div>
       <Link href="/setup" style={{ color: "#92400e", textDecoration: "underline", fontWeight: 600 }}>
         Go to setup
