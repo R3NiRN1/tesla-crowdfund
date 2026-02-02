@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAccount, useReadContracts, useWriteContract } from "wagmi";
 import { useWaitForTransactionReceipt } from "wagmi";
-import { formatUnits, parseUnits } from "viem";
+import { formatUnits, parseUnits, type ContractFunctionParameters } from "viem";
 
 import { erc20Abi } from "@/lib/erc20Abi";
 import { campaignWriteAbi } from "@/lib/campaignWriteAbi";
@@ -35,6 +35,55 @@ export default function FundCampaign({
   const decimalsFallback = 18;
   const symbolFallback = "TES";
 
+  const readConfig = useMemo(() => {
+    const contracts: ContractFunctionParameters[] = [];
+    const indices: {
+      balance: number | null;
+      allowance: number | null;
+      decimals: number;
+      symbol: number;
+    } = {
+      balance: null,
+      allowance: null,
+      decimals: 0,
+      symbol: 0,
+    };
+
+    if (address) {
+      indices.balance = contracts.length;
+      contracts.push({
+        address: token,
+        abi: erc20Abi,
+        functionName: "balanceOf",
+        args: [address],
+      });
+
+      indices.allowance = contracts.length;
+      contracts.push({
+        address: token,
+        abi: erc20Abi,
+        functionName: "allowance",
+        args: [address, campaignAddress],
+      });
+    }
+
+    indices.decimals = contracts.length;
+    contracts.push({
+      address: token,
+      abi: erc20Abi,
+      functionName: "decimals",
+    });
+
+    indices.symbol = contracts.length;
+    contracts.push({
+      address: token,
+      abi: erc20Abi,
+      functionName: "symbol",
+    });
+
+    return { contracts, indices };
+  }, [address, token, campaignAddress]);
+
   const {
     data: reads,
     refetch,
@@ -42,50 +91,24 @@ export default function FundCampaign({
     error: readsError,
   } = useReadContracts({
     allowFailure: true,
-    contracts: [
-      // balanceOf(address)
-      address
-        ? {
-            address: token,
-            abi: erc20Abi,
-            functionName: "balanceOf",
-            args: [address],
-          }
-        : undefined,
-
-      // allowance(owner, spender)
-      address
-        ? {
-          address: token,
-          abi: erc20Abi,
-          functionName: "allowance",
-          args: [address, campaignAddress],
-        }
-      : undefined,
-
-      // decimals()
-      {
-        address: token,
-        abi: erc20Abi,
-        functionName: "decimals",
-      },
-
-      // symbol()
-      {
-        address: token,
-        abi: erc20Abi,
-        functionName: "symbol",
-      },
-    ].filter(Boolean) as any,
+    contracts: readConfig.contracts,
   });
 
-  const balance = (reads?.[0] as any)?.result as bigint | undefined;
-  const allowance = (reads?.[1] as any)?.result as bigint | undefined;
-  const decimalsRaw = (reads?.[2] as any)?.result as number | undefined;
-  const symbolRaw = (reads?.[3] as any)?.result as string | undefined;
+  const balanceResult =
+    readConfig.indices.balance !== null ? reads?.[readConfig.indices.balance]?.result : undefined;
+  const allowanceResult =
+    readConfig.indices.allowance !== null ? reads?.[readConfig.indices.allowance]?.result : undefined;
+  const decimalsResult = reads?.[readConfig.indices.decimals]?.result;
+  const symbolResult = reads?.[readConfig.indices.symbol]?.result;
 
-  const decimals = Number.isFinite(decimalsRaw) ? (decimalsRaw as number) : decimalsFallback;
-  const symbol = typeof symbolRaw === "string" && symbolRaw.length ? symbolRaw : symbolFallback;
+  const balance = typeof balanceResult === "bigint" ? balanceResult : undefined;
+  const allowance = typeof allowanceResult === "bigint" ? allowanceResult : undefined;
+  const decimals = Number.isFinite(decimalsResult)
+    ? Number(decimalsResult)
+    : typeof decimalsResult === "bigint"
+    ? Number(decimalsResult)
+    : decimalsFallback;
+  const symbol = typeof symbolResult === "string" && symbolResult.length ? symbolResult : symbolFallback;
 
   const parsedAmount = useMemo(() => {
     const n = Number(amountText);
@@ -302,7 +325,15 @@ export default function FundCampaign({
 
         {(readsError || writeError) && (
           <div style={{ marginTop: 6, color: "crimson" }}>
-            {String((readsError as any)?.message || (writeError as any)?.message || "Unknown error")}
+            {readsError instanceof Error
+              ? readsError.message
+              : writeError instanceof Error
+              ? writeError.message
+              : readsError
+              ? String(readsError)
+              : writeError
+              ? String(writeError)
+              : "Unknown error"}
           </div>
         )}
 

@@ -56,8 +56,9 @@ export default function Home() {
         setSelected(idx.addresses[0] ?? null);
 
         setLoading(false);
-      } catch (e: any) {
-        setErr(e?.message || String(e));
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        setErr(message);
         setLoading(false);
       }
     })();
@@ -69,8 +70,9 @@ export default function Home() {
     try {
       const c = await readCampaign(useAddr);
       setCampaign(c);
-    } catch (e: any) {
-      setErr(e?.message || String(e));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setErr(message);
     }
   }
 
@@ -81,14 +83,6 @@ export default function Home() {
     refreshSelectedCampaign(selected);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected]);
-
-  const stats = useMemo(() => {
-    if (!campaign) return null;
-    const goal = Number(formatUnits(campaign.goal, 18));
-    const raised = Number(formatUnits(campaign.totalContributed, 18));
-    const pct = goal > 0 ? Math.min(100, (raised / goal) * 100) : 0;
-    return { goal, raised, pct };
-  }, [campaign]);
 
   // Prefer factory token; fall back to env token if needed
   const tokenAddress =
@@ -222,21 +216,33 @@ export default function Home() {
               </div>
 
               <div style={{ marginTop: 16 }}>
-                <FundCampaign
-                  campaign={campaign}
-                  tokenAddress={tokenAddress}
-                  setupMode={setupMode}
-                  networkGuard={networkGuard}
-                  token={tokenAddress}
-                  campaignAddress={campaign.address}
-                  onContributed={() => refreshSelectedCampaign(campaign.address)}
-                  disabled={setupMode || networkGuard.blockWrites}
-                  disabledReason={
-                    setupMode
-                      ? "Setup required: contract addresses not configured."
-                      : networkGuard.message || "Wrong network: switch to the expected chain."
-                  }
-                />
+                {tokenAddress ? (
+                  <FundCampaign
+                    token={tokenAddress}
+                    campaignAddress={campaign.address}
+                    onContributed={() => refreshSelectedCampaign(campaign.address)}
+                    disabled={setupMode || networkGuard.blockWrites}
+                    disabledReason={
+                      setupMode
+                        ? "Setup required: contract addresses not configured."
+                        : networkGuard.message || "Wrong network: switch to the expected chain."
+                    }
+                  />
+                ) : (
+                  <div
+                    style={{
+                      border: "1px solid #f59e0b",
+                      borderRadius: 12,
+                      padding: 12,
+                      marginTop: 12,
+                      background: "#fffbeb",
+                      color: "#92400e",
+                      fontSize: 13,
+                    }}
+                  >
+                    Funding is unavailable because the token address is not configured.
+                  </div>
+                )}
               </div>
 
               {isOwner && campaign.milestones.length > 0 && (
@@ -244,10 +250,10 @@ export default function Home() {
                   <h3 style={{ margin: 0 }}>Milestones</h3>
                   <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
                     {campaign.milestones.map((m, i) => {
-                      const isClaimed = campaign.milestonePaid[i];
+                      const isClaimed = m.claimed;
                       return (
                         <div
-                          key={`${m.title}-${i}`}
+                          key={`${m.description}-${i}`}
                           style={{
                             border: "1px solid #e5e7eb",
                             borderRadius: 10,
@@ -258,7 +264,7 @@ export default function Home() {
                           }}
                         >
                           <div>
-                            <div style={{ fontWeight: 600 }}>{m.title}</div>
+                            <div style={{ fontWeight: 600 }}>{m.description}</div>
                             <div style={{ fontSize: 13, opacity: 0.7 }}>{formatUnits(m.amount, 18)} TES</div>
                           </div>
                           <button
