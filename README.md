@@ -50,6 +50,20 @@ This repo is structured for local development and testing while keeping secrets 
 
 See the full install guide: [docs/INSTALL.md](docs/INSTALL.md).
 
+## First run (local dev)
+
+```bash
+npm run setup
+npm run doctor
+cd frontend
+npm run dev
+```
+
+Reset instructions:
+
+- Delete `frontend/.env.local` to return to setup/read-only mode.
+- Clear browser storage keys: `teslaCrowdfundConfig:v1`, `teslaCrowdfundDrafts:v1`, `teslaCrowdfundAudit:v1`.
+
 ## Happy Path (from a fresh clone)
 
 ```bash
@@ -158,9 +172,9 @@ Routes added for the new UX:
 - `/campaigns/new` (campaign draft builder)
 - `/admin` (local admin dashboard)
 
-⚠️ **Admin dashboard security (MVP):** the admin passphrase is stored locally
-in the browser (localStorage) for now. Treat this as a temporary UX-only gate
-until a real backend/auth flow is implemented.
+⚠️ **Admin dashboard security (MVP):** admin mode is local-only and does not
+enforce authentication yet. Treat this as a temporary UX-only scaffold until
+a real backend/auth flow is implemented.
 
 ---
 

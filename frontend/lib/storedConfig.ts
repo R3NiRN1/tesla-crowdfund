@@ -8,7 +8,6 @@ export type StoredConfig = {
   bscscanBase: string | null;
   wcEnabled: boolean;
   wcProjectId: string | null;
-  adminToken: string | null;
 };
 
 export function getStoredConfig(): StoredConfig | null {
