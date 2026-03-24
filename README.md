@@ -50,6 +50,14 @@ This repo is structured for local development and testing while keeping secrets 
 
 See the full install guide: [docs/INSTALL.md](docs/INSTALL.md).
 
+
+
+
+Architecture and planning docs:
+- [docs/ARCHITECTURE_V1.md](docs/ARCHITECTURE_V1.md)
+- [docs/ROADMAP_V1.md](docs/ROADMAP_V1.md)
+- [docs/DECISIONS.md](docs/DECISIONS.md)
+
 ## First run (local dev)
 
 ```bash
