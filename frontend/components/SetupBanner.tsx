@@ -10,21 +10,10 @@ export default function SetupBanner() {
   if (publicConfig.isConfigured) return null;
 
   return (
-    <div
-      style={{
-        marginBottom: 16,
-        padding: "10px 12px",
-        borderRadius: 10,
-        border: "1px solid #f59e0b",
-        background: "#fffbeb",
-        color: "#92400e",
-        fontSize: 14,
-        lineHeight: 1.5,
-      }}
-    >
-      <div style={{ fontWeight: 600 }}>Setup required (read-only mode)</div>
-      <div>Complete the first-run wizard to configure chain settings and enable write actions.</div>
-      <Link href="/setup" style={{ color: "#92400e", textDecoration: "underline", fontWeight: 600 }}>
+    <div className="panel-warning">
+      <div style={{ fontWeight: 700 }}>setup/read-only mode</div>
+      <div>Funding and claim transactions are disabled until RPC, factory, and token settings are configured.</div>
+      <Link href="/setup" style={{ color: "inherit", textDecoration: "underline", fontWeight: 700 }}>
         Go to setup
       </Link>
     </div>

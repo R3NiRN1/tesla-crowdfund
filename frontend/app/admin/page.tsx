@@ -2,17 +2,23 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 
+import AlphaNavigation from "@/components/AlphaNavigation";
 import SetupBanner from "@/components/SetupBanner";
-import { appendAuditLog, getAuditLog, getCampaignDrafts, type AuditLogEntry, type CampaignDraft } from "@/lib/localCampaigns";
-import { usePublicConfig } from "@/lib/usePublicConfig";
 import { ZERO_ADDRESS } from "@/lib/publicConfig";
+import { usePublicConfig } from "@/lib/usePublicConfig";
+import {
+  appendAuditLog,
+  getAuditLog,
+  getCampaignDrafts,
+  type AuditLogEntry,
+  type CampaignDraft,
+} from "@/lib/localCampaigns";
 
 function short(value: string | null | undefined) {
   if (!value) return "—";
   if (value.length <= 12) return value;
-  return `${value.slice(0, 6)}…${value.slice(-4)}`;
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
 }
 
 function createLogEntry(action: string, detail?: string): AuditLogEntry {
@@ -25,17 +31,14 @@ function createLogEntry(action: string, detail?: string): AuditLogEntry {
 }
 
 export default function AdminPage() {
-  const router = useRouter();
   const publicConfig = usePublicConfig();
   const [drafts, setDrafts] = useState<CampaignDraft[]>([]);
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
 
-  const setupMode = !publicConfig.isConfigured;
-
   useEffect(() => {
     setDrafts(getCampaignDrafts());
     setAuditLog(getAuditLog());
-    const entry = createLogEntry("opened admin", "Visited /admin dashboard");
+    const entry = createLogEntry("opened admin scaffold", "Visited /admin local dashboard");
     setAuditLog(appendAuditLog(entry));
   }, []);
 
@@ -46,17 +49,23 @@ export default function AdminPage() {
 
   const configSummary = useMemo(
     () => ({
-      chainId: publicConfig.chainId ?? "—",
+      mode: publicConfig.isConfigured
+        ? publicConfig.chainId === 97
+          ? "configured testnet"
+          : "configured network"
+        : "setup/read-only",
+      chainId: publicConfig.chainId ?? "not set",
       rpc: publicConfig.rpcUrl ? "configured" : "missing",
-      factory: short(publicConfig.factoryAddress),
-      token: short(publicConfig.tokenAddress),
+      factory: hasFactory ? short(publicConfig.factoryAddress) : "not configured",
+      token: hasToken ? short(publicConfig.tokenAddress) : "not configured",
     }),
-    [publicConfig]
+    [hasFactory, hasToken, publicConfig]
   );
 
   const exportDrafts = () => {
     const payload = {
       exportedAt: new Date().toISOString(),
+      note: "Local-only TES Crowdfund alpha scaffold export. Not on-chain.",
       drafts,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -67,157 +76,132 @@ export default function AdminPage() {
     anchor.click();
     URL.revokeObjectURL(url);
 
-    const entry = createLogEntry("exported drafts", `Exported ${drafts.length} drafts`);
+    const entry = createLogEntry("exported local drafts", `Exported ${drafts.length} drafts`);
     setAuditLog(appendAuditLog(entry));
   };
 
   return (
-    <main style={{ padding: 24, fontFamily: "system-ui", maxWidth: 1100, margin: "0 auto" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <h1 style={{ margin: 0 }}>Admin Dashboard</h1>
-          <p style={{ margin: "4px 0", color: "#4b5563" }}>Local-only admin tools (MVP scaffold).</p>
+    <main className="alpha-shell">
+      <div className="alpha-container">
+        <header className="alpha-header">
+          <div>
+            <p className="eyebrow">Local scaffold</p>
+            <h1>Admin scaffold</h1>
+            <p>Browser-only admin surface for alpha demos. No authentication, backend, or server storage is enabled.</p>
+          </div>
+          <Link className="button-link" href="/">
+            Deployed campaigns
+          </Link>
+        </header>
+
+        <AlphaNavigation active="admin" />
+        <SetupBanner />
+
+        <div className="panel-warning">
+          Admin, audit log, and draft data are local-only scaffold features. They do not deploy campaigns, write to a
+          backend, or change contracts.
         </div>
-        <Link href="/">Back to explorer</Link>
-      </header>
 
-      <SetupBanner />
-
-      <div
-        style={{
-          marginTop: 16,
-          padding: "10px 12px",
-          borderRadius: 10,
-          border: "1px solid #e5e7eb",
-          background: "#f9fafb",
-          color: "#374151",
-          fontSize: 13,
-        }}
-      >
-        Admin mode is local-only MVP. No authentication or server storage is enabled yet.
-      </div>
-
-      {setupMode && (
-        <div
-          style={{
-            marginTop: 12,
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "1px solid #f59e0b",
-            background: "#fffbeb",
-            color: "#92400e",
-            fontSize: 13,
-          }}
-        >
-          Setup/read-only mode is active. Draft creation and exports are disabled until addresses are configured.
-        </div>
-      )}
-
-      <div style={{ marginTop: 24, display: "grid", gap: 20 }}>
-        <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16 }}>
-          <h2 style={{ marginTop: 0 }}>Network status</h2>
-          <div style={{ display: "grid", gap: 8, fontSize: 13 }}>
-            <div>Expected chain ID: {configSummary.chainId}</div>
-            <div>RPC URL: {hasRpc ? "configured" : "missing"}</div>
-            <div>Factory address: {hasFactory ? "configured" : "ZERO_ADDRESS"}</div>
-            <div>Token address: {hasToken ? "configured" : "ZERO_ADDRESS"}</div>
-            {!hasChainId && <div style={{ color: "#dc2626" }}>Chain ID missing. Update setup to enable writes.</div>}
+        <section className="stats-grid">
+          <div className="stat-card">
+            <span className="stat-label">Mode</span>
+            <span className="stat-value">{configSummary.mode}</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">Chain ID</span>
+            <span className="stat-value">{configSummary.chainId}</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">RPC</span>
+            <span className="stat-value">{configSummary.rpc}</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">Factory</span>
+            <span className="stat-value">{configSummary.factory}</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">Token</span>
+            <span className="stat-value">{configSummary.token}</span>
           </div>
         </section>
 
-        <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16 }}>
-          <h2 style={{ marginTop: 0 }}>Config summary</h2>
-          <div style={{ display: "grid", gap: 8, fontSize: 13 }}>
-            <div>Chain ID: {configSummary.chainId}</div>
-            <div>RPC: {configSummary.rpc}</div>
-            <div>Factory: {configSummary.factory}</div>
-            <div>Token: {configSummary.token}</div>
+        {!hasChainId && (
+          <div className="panel-danger">Chain ID is missing. Contract writes remain disabled until setup is complete.</div>
+        )}
+        {hasRpc && !publicConfig.isConfigured && (
+          <div className="panel-warning">
+            RPC is present, but factory or token settings are missing. The app remains in setup/read-only mode.
           </div>
+        )}
+
+        <section className="panel">
+          <div className="split-row">
+            <div>
+              <h2>Draft actions</h2>
+              <p className="section-subtitle">Create or export local campaign drafts for alpha review.</p>
+            </div>
+            <div className="button-row">
+              <Link className="button-primary" href="/campaigns/new">
+                Create draft
+              </Link>
+              <button
+                type="button"
+                onClick={exportDrafts}
+                disabled={drafts.length === 0}
+                className={drafts.length === 0 ? "button-disabled" : "button-secondary"}
+              >
+                Export drafts
+              </button>
+            </div>
+          </div>
+          {drafts.length === 0 && (
+            <div className="empty-state" style={{ marginTop: 14 }}>
+              <strong>No local drafts available.</strong>
+              <p>The export action enables once at least one browser draft exists.</p>
+            </div>
+          )}
         </section>
 
-        <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16 }}>
-          <h2 style={{ marginTop: 0 }}>Draft actions</h2>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              onClick={() => router.push("/campaigns/new")}
-              disabled={setupMode}
-              style={{
-                padding: "8px 12px",
-                borderRadius: 8,
-                border: "1px solid #111827",
-                background: setupMode ? "#9ca3af" : "#111827",
-                color: "white",
-                cursor: setupMode ? "not-allowed" : "pointer",
-              }}
-            >
-              Create campaign draft
-            </button>
-            <button
-              type="button"
-              onClick={exportDrafts}
-              disabled={setupMode || drafts.length === 0}
-              style={{
-                padding: "8px 12px",
-                borderRadius: 8,
-                border: "1px solid #d1d5db",
-                background: setupMode || drafts.length === 0 ? "#f3f4f6" : "white",
-                cursor: setupMode || drafts.length === 0 ? "not-allowed" : "pointer",
-              }}
-            >
-              Export drafts
-            </button>
-          </div>
-          <div style={{ marginTop: 8, fontSize: 12, color: "#6b7280" }}>
-            Draft exports are saved locally as JSON (no server required).
-          </div>
-        </section>
-
-        <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16 }}>
-          <h2 style={{ marginTop: 0 }}>Campaign drafts</h2>
+        <section className="panel">
+          <h2>Campaign drafts</h2>
           {drafts.length === 0 ? (
-            <div style={{ color: "#6b7280" }}>No drafts found.</div>
+            <div className="empty-state">
+              <strong>No drafts found.</strong>
+              <p>Drafts created from the New draft page will appear here as local scaffold records.</p>
+            </div>
           ) : (
-            <div style={{ display: "grid", gap: 12 }}>
+            <div className="draft-list">
               {drafts.map((draft) => (
-                <div key={draft.id} style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                <article key={draft.id} className="draft-item">
+                  <div className="split-row">
                     <div>
                       <strong>{draft.title}</strong>
-                      <div style={{ fontSize: 12, color: "#6b7280" }}>{draft.shortDescription}</div>
+                      <div className="small muted">{draft.shortDescription || "No summary yet."}</div>
                     </div>
-                    <span
-                      style={{
-                        fontSize: 12,
-                        padding: "2px 8px",
-                        borderRadius: 999,
-                        background: draft.status === "published" ? "#dcfce7" : "#e0e7ff",
-                        color: draft.status === "published" ? "#166534" : "#3730a3",
-                        height: "fit-content",
-                      }}
-                    >
-                      {draft.status}
+                    <span className={`badge ${draft.status === "published" ? "badge-success" : "badge-muted"}`}>
+                      local {draft.status}
                     </span>
                   </div>
-                  <div style={{ marginTop: 8, fontSize: 12, color: "#6b7280" }}>
-                    Goal: {draft.goalAmount || "—"} · Beneficiary: {draft.beneficiaryAddress || "—"}
+                  <div className="small muted" style={{ marginTop: 8 }}>
+                    Goal: {draft.goalAmount || "not set"} | Beneficiary: {draft.beneficiaryAddress || "not set"}
                   </div>
-                </div>
+                </article>
               ))}
             </div>
           )}
         </section>
 
-        <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16 }}>
-          <h2 style={{ marginTop: 0 }}>Audit log</h2>
+        <section className="panel">
+          <h2>Local audit log</h2>
           {auditLog.length === 0 ? (
-            <div style={{ color: "#6b7280" }}>No audit events yet.</div>
+            <div className="empty-state">No local audit events yet.</div>
           ) : (
-            <div style={{ display: "grid", gap: 8, fontSize: 13 }}>
+            <div className="audit-list">
               {auditLog.map((entry) => (
-                <div key={entry.id} style={{ borderBottom: "1px solid #f3f4f6", paddingBottom: 6 }}>
-                  <strong>{entry.action}</strong> — {entry.detail}
-                  <div style={{ color: "#9ca3af" }}>{new Date(entry.timestamp).toLocaleString()}</div>
+                <div key={entry.id} className="draft-item">
+                  <strong>{entry.action}</strong>
+                  {entry.detail && <div className="small muted">{entry.detail}</div>}
+                  <div className="small muted">{new Date(entry.timestamp).toLocaleString()}</div>
                 </div>
               ))}
             </div>

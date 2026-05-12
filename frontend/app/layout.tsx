@@ -3,8 +3,8 @@ import "./globals.css";
 import Providers from "./providers";
 
 export const metadata: Metadata = {
-  title: "TES Crowdfund",
-  description: "Testnet explorer",
+  title: "TES Crowdfund Alpha",
+  description: "Alpha demo and testnet campaign dashboard",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
