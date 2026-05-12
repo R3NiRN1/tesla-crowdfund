@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 import AlphaNavigation from "@/components/AlphaNavigation";
 import SetupBanner from "@/components/SetupBanner";
-import { getCampaignDrafts, type CampaignDraft } from "@/lib/localCampaigns";
+import { buildDraftReadiness, getCampaignDrafts, type CampaignDraft } from "@/lib/localCampaigns";
 
 export default function CampaignsPage() {
   const [drafts, setDrafts] = useState<CampaignDraft[]>([]);
@@ -52,27 +52,48 @@ export default function CampaignsPage() {
         ) : (
           <section className="draft-list" aria-label="Local campaign drafts">
             {drafts.map((draft) => (
-              <article key={draft.id} className="draft-item">
-                <div className="split-row">
-                  <div>
-                    <strong>{draft.title || "Untitled campaign"}</strong>
-                    <div className="small muted">{draft.shortDescription || "No summary yet."}</div>
-                  </div>
-                  <span className={`badge ${draft.status === "published" ? "badge-success" : "badge-muted"}`}>
-                    local {draft.status}
-                  </span>
-                </div>
-                <div className="small muted" style={{ marginTop: 8 }}>
-                  Goal: {draft.goalAmount || "not set"} | Beneficiary: {draft.beneficiaryAddress || "not set"}
-                </div>
-                <div className="small muted" style={{ marginTop: 4 }}>
-                  Updated: {new Date(draft.updatedAt).toLocaleString()}
-                </div>
-              </article>
+              <DraftListItem key={draft.id} draft={draft} />
             ))}
           </section>
         )}
       </div>
     </main>
+  );
+}
+
+function DraftListItem({ draft }: { draft: CampaignDraft }) {
+  const readiness = buildDraftReadiness(draft);
+  const isReady = readiness.readiness === "contract-ready";
+
+  return (
+    <article className="draft-item">
+      <div className="split-row">
+        <div>
+          <strong>{draft.title || "Untitled campaign"}</strong>
+          <div className="small muted">{draft.shortDescription || "No summary yet."}</div>
+        </div>
+        <div className="button-row">
+          <span className={`badge ${isReady ? "badge-success" : "badge-warning"}`}>
+            {isReady ? "contract-ready" : "incomplete"}
+          </span>
+          <span className="badge badge-muted">local {draft.status}</span>
+        </div>
+      </div>
+      <div className="small muted" style={{ marginTop: 8 }}>
+        Goal: {draft.goalAmount || "not set"} | Milestone total: {readiness.milestoneTotal || "0"} | Duration:{" "}
+        {readiness.durationSeconds !== null ? `${readiness.durationSeconds}s` : "not ready"}
+      </div>
+      <div className="small muted" style={{ marginTop: 4 }}>
+        Milestones: {draft.milestones.length} | Beneficiary: {draft.beneficiaryAddress || "not set"}
+      </div>
+      {!isReady && readiness.reasons.length > 0 && (
+        <div className="small muted" style={{ marginTop: 8 }}>
+          First blocker: {readiness.reasons[0]}
+        </div>
+      )}
+      <div className="small muted" style={{ marginTop: 4 }}>
+        Updated: {new Date(draft.updatedAt).toLocaleString()}
+      </div>
+    </article>
   );
 }
