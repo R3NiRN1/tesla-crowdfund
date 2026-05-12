@@ -25,9 +25,11 @@ jobs:
       - name: Use Node.js 20.9.0
         uses: actions/setup-node@v4
         with:
-          node-version: 20.9.0
+          node-version: 20.19.0
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
       - name: Install dependencies (root)
         run: npm ci
       - name: Compile contracts
@@ -37,8 +39,10 @@ jobs:
       - name: Preflight
         run: npm run preflight
       - name: Install dependencies (frontend)
-        working-directory: frontend
-        run: npm ci
+        run: npm --prefix frontend ci
+
+      - name: Lint frontend
+        run: npm --prefix frontend run lint
+
       - name: Build frontend
-        working-directory: frontend
-        run: npm run build
+        run: npm --prefix frontend run build
