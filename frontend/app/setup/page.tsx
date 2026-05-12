@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import AlphaNavigation from "@/components/AlphaNavigation";
 import { ZERO_ADDRESS } from "@/lib/publicConfig";
 import { getStoredConfig, setStoredConfig, type StoredConfig } from "@/lib/storedConfig";
 
@@ -185,16 +186,24 @@ export default function SetupPage() {
   };
 
   return (
-    <main style={{ padding: 24, fontFamily: "system-ui", maxWidth: 900, margin: "0 auto" }}>
+    <main className="alpha-shell">
+      <div className="alpha-container">
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <h1 style={{ margin: 0 }}>Setup Wizard</h1>
           <p style={{ margin: "4px 0", color: "#4b5563" }}>
-            Configure the chain + UI settings locally. Nothing is written to the server.
+            Configure chain and UI settings locally. Leave factory and token as ZERO_ADDRESS for demo/local mode.
           </p>
         </div>
         <Link href="/">Back to explorer</Link>
       </header>
+
+      <AlphaNavigation active="setup" />
+
+      <div className="panel-warning">
+        Setup values are stored in this browser. Until RPC, factory, and token are configured, the app stays in
+        setup/read-only mode and shows local demo campaigns.
+      </div>
 
       <div style={{ marginTop: 24, display: "grid", gap: 16 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -503,6 +512,7 @@ export default function SetupPage() {
             <Link href="/">Return home</Link>
           )}
         </div>
+      </div>
       </div>
     </main>
   );
