@@ -21,7 +21,10 @@ export default function CampaignsPage() {
           <div>
             <p className="eyebrow">Local scaffold</p>
             <h1>Campaign drafts</h1>
-            <p>Drafts are saved in this browser only. They are not deployed and do not create on-chain campaigns.</p>
+            <p>
+              Drafts are local-only, not authenticated, not production moderation, and stored in browser localStorage.
+              They are not deployed and do not create on-chain campaigns.
+            </p>
           </div>
           <Link className="button-primary" href="/campaigns/new">
             New draft
@@ -32,8 +35,8 @@ export default function CampaignsPage() {
         <SetupBanner />
 
         <div className="panel-warning">
-          Campaign drafts are local-only scaffold data for alpha planning. Funding and claim actions only appear on
-          deployed campaigns from a configured factory.
+          Campaign drafts and review states are local-only scaffold data for alpha planning. They are not authenticated,
+          not production moderation, and are stored in browser localStorage.
         </div>
 
         {drafts.length === 0 ? (
@@ -76,7 +79,7 @@ function DraftListItem({ draft }: { draft: CampaignDraft }) {
           <span className={`badge ${isReady ? "badge-success" : "badge-warning"}`}>
             {isReady ? "contract-ready" : "incomplete"}
           </span>
-          <span className="badge badge-muted">local {draft.status}</span>
+          <span className="badge badge-muted">review: {draft.reviewState ?? "draft"}</span>
         </div>
       </div>
       <div className="small muted" style={{ marginTop: 8 }}>
@@ -86,6 +89,11 @@ function DraftListItem({ draft }: { draft: CampaignDraft }) {
       <div className="small muted" style={{ marginTop: 4 }}>
         Milestones: {draft.milestones.length} | Beneficiary: {draft.beneficiaryAddress || "not set"}
       </div>
+      {draft.adminNote && (
+        <div className="small muted" style={{ marginTop: 4 }}>
+          Admin note: {draft.adminNote}
+        </div>
+      )}
       {!isReady && readiness.reasons.length > 0 && (
         <div className="small muted" style={{ marginTop: 8 }}>
           First blocker: {readiness.reasons[0]}
