@@ -2,12 +2,22 @@ export const CAMPAIGN_DRAFTS_KEY = "teslaCrowdfundDrafts:v1";
 export const AUDIT_LOG_KEY = "teslaCrowdfundAudit:v1";
 
 export type CampaignDraftReviewState = "draft" | "needs changes" | "locally approved" | "rejected locally";
+export type CampaignDraftPublishState = "not published" | "published-on-testnet locally";
 export type CampaignDraftReadiness = "incomplete" | "contract-ready";
 export type CampaignDraftReviewAction =
   | "mark needs changes"
   | "approve locally"
   | "reject locally"
   | "reset to draft";
+
+export type CampaignDraftPublishMetadata = {
+  publishedAt: string;
+  transactionHash: string;
+  factoryAddress: string;
+  chainId: number;
+  draftId: string;
+  draftTitle: string;
+};
 
 export type CampaignMilestoneDraft = {
   id: string;
@@ -42,6 +52,8 @@ export type CampaignDraft = {
   milestoneTotal: string;
   reviewState?: CampaignDraftReviewState;
   adminNote?: string;
+  publishState?: CampaignDraftPublishState;
+  publishMetadata?: CampaignDraftPublishMetadata | null;
   status?: string;
   createdAt: string;
   updatedAt: string;
@@ -69,6 +81,8 @@ export type AuditLogEntry = {
 type StoredCampaignDraft = Partial<CampaignDraft> & {
   milestones?: unknown;
   reviewState?: unknown;
+  publishState?: unknown;
+  publishMetadata?: unknown;
   status?: unknown;
 };
 
@@ -76,6 +90,7 @@ const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const TOKEN_DECIMALS = 18;
 const TOKEN_UNIT = 10n ** BigInt(TOKEN_DECIMALS);
 const REVIEW_STATES: CampaignDraftReviewState[] = ["draft", "needs changes", "locally approved", "rejected locally"];
+const PUBLISH_STATES: CampaignDraftPublishState[] = ["not published", "published-on-testnet locally"];
 
 function createLocalId(prefix: string): string {
   if (typeof window !== "undefined" && "crypto" in window && "randomUUID" in window.crypto) {
@@ -100,6 +115,38 @@ function text(value: unknown): string {
 
 function normalizeReviewState(value: unknown): CampaignDraftReviewState {
   return REVIEW_STATES.includes(value as CampaignDraftReviewState) ? (value as CampaignDraftReviewState) : "draft";
+}
+
+function normalizePublishState(
+  value: unknown,
+  publishMetadata: CampaignDraftPublishMetadata | null
+): CampaignDraftPublishState {
+  if (PUBLISH_STATES.includes(value as CampaignDraftPublishState)) return value as CampaignDraftPublishState;
+  return publishMetadata ? "published-on-testnet locally" : "not published";
+}
+
+function normalizePublishMetadata(value: unknown): CampaignDraftPublishMetadata | null {
+  if (!value || typeof value !== "object") return null;
+  const metadata = value as Partial<CampaignDraftPublishMetadata>;
+  const publishedAt = text(metadata.publishedAt);
+  const transactionHash = text(metadata.transactionHash);
+  const factoryAddress = text(metadata.factoryAddress);
+  const chainId = Number(metadata.chainId);
+  const draftId = text(metadata.draftId);
+  const draftTitle = text(metadata.draftTitle);
+
+  if (!publishedAt || !transactionHash || !factoryAddress || !Number.isFinite(chainId) || !draftId || !draftTitle) {
+    return null;
+  }
+
+  return {
+    publishedAt,
+    transactionHash,
+    factoryAddress,
+    chainId,
+    draftId,
+    draftTitle,
+  };
 }
 
 function parseDateMs(value: string): number | null {
@@ -218,6 +265,7 @@ function normalizeMilestones(value: unknown): CampaignMilestoneDraft[] {
 
 function normalizeDraft(draft: StoredCampaignDraft): CampaignDraft {
   const now = new Date().toISOString();
+  const publishMetadata = normalizePublishMetadata(draft.publishMetadata);
   const normalized = {
     id: text(draft.id) || createLocalId("draft"),
     title: text(draft.title),
@@ -232,6 +280,8 @@ function normalizeDraft(draft: StoredCampaignDraft): CampaignDraft {
     milestones: normalizeMilestones(draft.milestones),
     reviewState: normalizeReviewState(draft.reviewState ?? draft.status),
     adminNote: text(draft.adminNote),
+    publishState: normalizePublishState(draft.publishState, publishMetadata),
+    publishMetadata,
     createdAt: text(draft.createdAt) || now,
     updatedAt: text(draft.updatedAt) || text(draft.createdAt) || now,
   };
@@ -294,6 +344,12 @@ export function appendAuditLog(entry: AuditLogEntry): AuditLogEntry[] {
     window.localStorage.setItem(AUDIT_LOG_KEY, JSON.stringify(next));
   }
   return next;
+}
+
+export function isDraftLocallyPublished(
+  draft: Pick<CampaignDraft, "publishState" | "publishMetadata">
+): boolean {
+  return draft.publishState === "published-on-testnet locally" || !!draft.publishMetadata;
 }
 
 export function updateCampaignDraftReview(
@@ -360,6 +416,38 @@ export function updateCampaignDraftAdminNote(
     draftId: notedDraft.id,
     draftTitle: notedDraft.title,
     note: adminNote || undefined,
+  });
+
+  return { drafts, auditLog };
+}
+
+export function recordCampaignDraftPublish(
+  metadata: CampaignDraftPublishMetadata
+): { drafts: CampaignDraft[]; auditLog: AuditLogEntry[] } {
+  const storedDrafts = getCampaignDrafts();
+  const currentDraft = storedDrafts.find((draft) => draft.id === metadata.draftId);
+
+  if (!currentDraft) {
+    return { drafts: storedDrafts, auditLog: getAuditLog() };
+  }
+
+  const publishedDraft: CampaignDraft = {
+    ...currentDraft,
+    publishState: "published-on-testnet locally",
+    publishMetadata: metadata,
+    updatedAt: metadata.publishedAt,
+  };
+  const drafts = storedDrafts.map((draft) => (draft.id === metadata.draftId ? publishedDraft : draft));
+  saveCampaignDrafts(drafts);
+
+  const auditLog = appendAuditLog({
+    id: createLocalId("log"),
+    action: "publish to testnet confirmed",
+    timestamp: metadata.publishedAt,
+    draftId: metadata.draftId,
+    draftTitle: metadata.draftTitle,
+    note: `Transaction ${metadata.transactionHash}`,
+    detail: `Factory ${metadata.factoryAddress} on chain ${metadata.chainId}. Local record only; not backend verified.`,
   });
 
   return { drafts, auditLog };

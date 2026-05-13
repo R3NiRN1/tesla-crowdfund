@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import AlphaNavigation from "@/components/AlphaNavigation";
+import ConnectWallet from "@/components/ConnectWallet";
 import SetupBanner from "@/components/SetupBanner";
+import TestnetPublishDraft from "@/components/TestnetPublishDraft";
+import WalletBar from "@/components/WalletBar";
 import {
   appendAuditLog,
   getAuditLog,
@@ -21,6 +24,8 @@ import { usePublicConfig } from "@/lib/usePublicConfig";
 
 const LOCAL_REVIEW_NOTICE =
   "local-only, not authenticated, not production moderation, stored in browser localStorage";
+const TESTNET_PUBLISH_NOTICE =
+  "wallet-driven testnet alpha path, local record only, not backend verified, not production moderation";
 
 function short(value: string | null | undefined) {
   if (!value) return "-";
@@ -155,13 +160,17 @@ export default function AdminPage() {
             <p className="eyebrow">Local-only admin review</p>
             <h1>Local admin review</h1>
             <p>
-              This scaffold is {LOCAL_REVIEW_NOTICE}. It is for browser-local draft review only and never publishes or
-              deploys a campaign.
+              This scaffold is {LOCAL_REVIEW_NOTICE}. Review data stays browser-local; the separate testnet publish path
+              below only runs after a user click and wallet confirmation.
             </p>
           </div>
-          <Link className="button-link" href="/">
-            Dashboard
-          </Link>
+          <div className="alpha-actions">
+            <WalletBar />
+            <ConnectWallet />
+            <Link className="button-link" href="/">
+              Dashboard
+            </Link>
+          </div>
         </header>
 
         <AlphaNavigation active="admin" />
@@ -169,7 +178,12 @@ export default function AdminPage() {
 
         <div className="panel-warning">
           Review states, admin notes, export history, and audit entries are {LOCAL_REVIEW_NOTICE}. This is not production
-          moderation and it does not add backend storage, authentication, uploads, wallet publishing, or deployment.
+          moderation and it does not add backend storage, authentication, uploads, or mainnet publishing.
+        </div>
+
+        <div className="panel-warning">
+          Testnet publish is a {TESTNET_PUBLISH_NOTICE}. It calls the configured BSC testnet factory only after the user
+          clicks Publish to testnet and confirms in their connected wallet.
         </div>
 
         <section className="stats-grid">
@@ -329,6 +343,11 @@ export default function AdminPage() {
                     <div className="small muted" style={{ marginTop: 10 }}>
                       Review actions update this browser localStorage and audit log only. They are {LOCAL_REVIEW_NOTICE}.
                     </div>
+
+                    <TestnetPublishDraft
+                      draft={draft}
+                      onPublished={(result) => syncDraftState(result.drafts, result.auditLog)}
+                    />
                   </article>
                 );
               })}
