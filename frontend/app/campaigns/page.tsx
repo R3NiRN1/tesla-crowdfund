@@ -80,6 +80,9 @@ function DraftListItem({ draft }: { draft: CampaignDraft }) {
             {isReady ? "contract-ready" : "incomplete"}
           </span>
           <span className="badge badge-muted">review: {draft.reviewState ?? "draft"}</span>
+          {draft.publishState === "published-on-testnet locally" && (
+            <span className="badge badge-success">published-on-testnet locally</span>
+          )}
         </div>
       </div>
       <div className="small muted" style={{ marginTop: 8 }}>
@@ -92,6 +95,12 @@ function DraftListItem({ draft }: { draft: CampaignDraft }) {
       {draft.adminNote && (
         <div className="small muted" style={{ marginTop: 4 }}>
           Admin note: {draft.adminNote}
+        </div>
+      )}
+      {draft.publishMetadata && (
+        <div className="small muted" style={{ marginTop: 4 }}>
+          Local publish record: {draft.publishMetadata.transactionHash} on chain {draft.publishMetadata.chainId}. Not
+          backend verified or production moderation.
         </div>
       )}
       {!isReady && readiness.reasons.length > 0 && (
