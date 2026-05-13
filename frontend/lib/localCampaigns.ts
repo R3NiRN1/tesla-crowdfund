@@ -1,8 +1,13 @@
 export const CAMPAIGN_DRAFTS_KEY = "teslaCrowdfundDrafts:v1";
 export const AUDIT_LOG_KEY = "teslaCrowdfundAudit:v1";
 
-export type CampaignDraftStatus = "draft" | "published";
+export type CampaignDraftReviewState = "draft" | "needs changes" | "locally approved" | "rejected locally";
 export type CampaignDraftReadiness = "incomplete" | "contract-ready";
+export type CampaignDraftReviewAction =
+  | "mark needs changes"
+  | "approve locally"
+  | "reject locally"
+  | "reset to draft";
 
 export type CampaignMilestoneDraft = {
   id: string;
@@ -35,7 +40,9 @@ export type CampaignDraft = {
   contractInput: CampaignContractInput;
   durationSeconds: number | null;
   milestoneTotal: string;
-  status: CampaignDraftStatus;
+  reviewState?: CampaignDraftReviewState;
+  adminNote?: string;
+  status?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -53,12 +60,29 @@ export type AuditLogEntry = {
   id: string;
   action: string;
   timestamp: string;
+  draftId?: string;
+  draftTitle?: string;
+  note?: string;
   detail?: string;
+};
+
+type StoredCampaignDraft = Partial<CampaignDraft> & {
+  milestones?: unknown;
+  reviewState?: unknown;
+  status?: unknown;
 };
 
 const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 const TOKEN_DECIMALS = 18;
 const TOKEN_UNIT = 10n ** BigInt(TOKEN_DECIMALS);
+const REVIEW_STATES: CampaignDraftReviewState[] = ["draft", "needs changes", "locally approved", "rejected locally"];
+
+function createLocalId(prefix: string): string {
+  if (typeof window !== "undefined" && "crypto" in window && "randomUUID" in window.crypto) {
+    return `${prefix}-${window.crypto.randomUUID()}`;
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 function safeParse<T>(raw: string | null, fallback: T): T {
   if (!raw) return fallback;
@@ -68,6 +92,14 @@ function safeParse<T>(raw: string | null, fallback: T): T {
     console.warn("Failed to parse local storage", error);
     return fallback;
   }
+}
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function normalizeReviewState(value: unknown): CampaignDraftReviewState {
+  return REVIEW_STATES.includes(value as CampaignDraftReviewState) ? (value as CampaignDraftReviewState) : "draft";
 }
 
 function parseDateMs(value: string): number | null {
@@ -184,19 +216,24 @@ function normalizeMilestones(value: unknown): CampaignMilestoneDraft[] {
   });
 }
 
-function normalizeDraft(draft: CampaignDraft): CampaignDraft {
+function normalizeDraft(draft: StoredCampaignDraft): CampaignDraft {
+  const now = new Date().toISOString();
   const normalized = {
-    ...draft,
-    title: draft.title ?? "",
-    shortDescription: draft.shortDescription ?? "",
-    longDescription: draft.longDescription ?? "",
-    goalAmount: draft.goalAmount ?? "",
-    startDate: draft.startDate ?? "",
-    endDate: draft.endDate ?? "",
-    imageUrl: draft.imageUrl ?? "",
-    beneficiaryAddress: draft.beneficiaryAddress ?? "",
-    tokenSymbol: draft.tokenSymbol ?? "",
-    milestones: normalizeMilestones((draft as CampaignDraft).milestones),
+    id: text(draft.id) || createLocalId("draft"),
+    title: text(draft.title),
+    shortDescription: text(draft.shortDescription),
+    longDescription: text(draft.longDescription),
+    goalAmount: text(draft.goalAmount),
+    startDate: text(draft.startDate),
+    endDate: text(draft.endDate),
+    imageUrl: text(draft.imageUrl),
+    beneficiaryAddress: text(draft.beneficiaryAddress),
+    tokenSymbol: text(draft.tokenSymbol),
+    milestones: normalizeMilestones(draft.milestones),
+    reviewState: normalizeReviewState(draft.reviewState ?? draft.status),
+    adminNote: text(draft.adminNote),
+    createdAt: text(draft.createdAt) || now,
+    updatedAt: text(draft.updatedAt) || text(draft.createdAt) || now,
   };
   const report = buildDraftReadiness(normalized);
 
@@ -210,53 +247,120 @@ function normalizeDraft(draft: CampaignDraft): CampaignDraft {
   };
 }
 
+function normalizeAuditLogEntry(entry: Partial<AuditLogEntry>): AuditLogEntry {
+  return {
+    id: text(entry.id) || createLocalId("log"),
+    action: text(entry.action) || "local admin action",
+    timestamp: text(entry.timestamp) || new Date().toISOString(),
+    draftId: text(entry.draftId) || undefined,
+    draftTitle: text(entry.draftTitle) || undefined,
+    note: text(entry.note) || undefined,
+    detail: text(entry.detail) || undefined,
+  };
+}
+
 export function getCampaignDrafts(): CampaignDraft[] {
   if (typeof window === "undefined") return [];
-  return safeParse<CampaignDraft[]>(window.localStorage.getItem(CAMPAIGN_DRAFTS_KEY), []).map(normalizeDraft);
+  return safeParse<StoredCampaignDraft[]>(window.localStorage.getItem(CAMPAIGN_DRAFTS_KEY), []).map(normalizeDraft);
 }
 
 export function saveCampaignDrafts(drafts: CampaignDraft[]): void {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(CAMPAIGN_DRAFTS_KEY, JSON.stringify(drafts));
+  window.localStorage.setItem(CAMPAIGN_DRAFTS_KEY, JSON.stringify(drafts.map(normalizeDraft)));
 }
 
 export function upsertCampaignDraft(draft: CampaignDraft): CampaignDraft[] {
   const drafts = getCampaignDrafts();
-  const index = drafts.findIndex((item) => item.id === draft.id);
+  const normalizedDraft = normalizeDraft(draft);
+  const index = drafts.findIndex((item) => item.id === normalizedDraft.id);
   if (index === -1) {
-    drafts.unshift(draft);
+    drafts.unshift(normalizedDraft);
   } else {
-    drafts[index] = draft;
+    drafts[index] = normalizedDraft;
   }
   saveCampaignDrafts(drafts);
   return drafts;
 }
 
-export function markDraftPublished(id: string): CampaignDraft[] {
-  const drafts = getCampaignDrafts();
-  const next = drafts.map((draft) =>
-    draft.id === id
-      ? {
-          ...draft,
-          status: "published" as CampaignDraftStatus,
-          updatedAt: new Date().toISOString(),
-        }
-      : draft
-  );
-  saveCampaignDrafts(next);
-  return next;
-}
-
 export function getAuditLog(): AuditLogEntry[] {
   if (typeof window === "undefined") return [];
-  return safeParse<AuditLogEntry[]>(window.localStorage.getItem(AUDIT_LOG_KEY), []);
+  return safeParse<Partial<AuditLogEntry>[]>(window.localStorage.getItem(AUDIT_LOG_KEY), []).map(normalizeAuditLogEntry);
 }
 
 export function appendAuditLog(entry: AuditLogEntry): AuditLogEntry[] {
   const log = getAuditLog();
-  const next = [entry, ...log];
+  const next = [normalizeAuditLogEntry(entry), ...log];
   if (typeof window !== "undefined") {
     window.localStorage.setItem(AUDIT_LOG_KEY, JSON.stringify(next));
   }
   return next;
+}
+
+export function updateCampaignDraftReview(
+  id: string,
+  reviewState: CampaignDraftReviewState,
+  action: CampaignDraftReviewAction,
+  note: string
+): { drafts: CampaignDraft[]; auditLog: AuditLogEntry[] } {
+  const timestamp = new Date().toISOString();
+  const adminNote = note.trim();
+  const storedDrafts = getCampaignDrafts();
+  const currentDraft = storedDrafts.find((draft) => draft.id === id);
+
+  if (!currentDraft) {
+    return { drafts: storedDrafts, auditLog: getAuditLog() };
+  }
+
+  const reviewedDraft: CampaignDraft = {
+    ...currentDraft,
+    reviewState,
+    adminNote,
+    updatedAt: timestamp,
+  };
+  const drafts = storedDrafts.map((draft) => (draft.id === id ? reviewedDraft : draft));
+  saveCampaignDrafts(drafts);
+
+  const auditLog = appendAuditLog({
+    id: createLocalId("log"),
+    action,
+    timestamp,
+    draftId: reviewedDraft.id,
+    draftTitle: reviewedDraft.title,
+    note: adminNote || undefined,
+  });
+
+  return { drafts, auditLog };
+}
+
+export function updateCampaignDraftAdminNote(
+  id: string,
+  note: string
+): { drafts: CampaignDraft[]; auditLog: AuditLogEntry[] } {
+  const timestamp = new Date().toISOString();
+  const adminNote = note.trim();
+  const storedDrafts = getCampaignDrafts();
+  const currentDraft = storedDrafts.find((draft) => draft.id === id);
+
+  if (!currentDraft) {
+    return { drafts: storedDrafts, auditLog: getAuditLog() };
+  }
+
+  const notedDraft: CampaignDraft = {
+    ...currentDraft,
+    adminNote,
+    updatedAt: timestamp,
+  };
+  const drafts = storedDrafts.map((draft) => (draft.id === id ? notedDraft : draft));
+  saveCampaignDrafts(drafts);
+
+  const auditLog = appendAuditLog({
+    id: createLocalId("log"),
+    action: "save admin note",
+    timestamp,
+    draftId: notedDraft.id,
+    draftTitle: notedDraft.title,
+    note: adminNote || undefined,
+  });
+
+  return { drafts, auditLog };
 }
