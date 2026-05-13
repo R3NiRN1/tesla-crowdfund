@@ -58,6 +58,12 @@ Architecture and planning docs:
 - [docs/ROADMAP_V1.md](docs/ROADMAP_V1.md)
 - [docs/DECISIONS.md](docs/DECISIONS.md)
 
+## Alpha testing
+
+Use [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md) to test the current alpha loop:
+demo/read-only dashboard, contract-ready local drafts, local admin review, and
+guarded BSC testnet publish for locally approved drafts.
+
 ## First run (local dev)
 
 ```bash
