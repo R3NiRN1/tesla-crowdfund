@@ -1,1 +1,1 @@
-export const campaignFactoryWriteAbi = [{ type: "function", name: "createCampaign", stateMutability: "nonpayable", inputs: [{ name: "description", type: "string" }, { name: "goal", type: "uint256" }, { name: "duration", type: "uint256" }, { name: "milestoneDescriptions", type: "string[]" }, { name: "milestoneAmounts", type: "uint256[]" }], outputs: [{
+export const campaignFactoryWriteAbi=[{type:"function",name:"createCampaign",stateMutability:"nonpayable",inputs:[{type:"string"},{type:"uint256"},{type:"uint256"},{type:"string[]"},{type:"uint256[]"}],outputs:[]}] as const;
