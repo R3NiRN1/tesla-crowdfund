@@ -13,8 +13,4 @@ export type BackendSubmission = {
   review: unknown;
   publish: unknown;
   createdAt: string;
-  updatedAt: string;
-};
-
-export type CreateBackendSubmissionInput = {
-  creator
+  updated
