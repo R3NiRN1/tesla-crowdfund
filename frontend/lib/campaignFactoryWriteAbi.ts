@@ -8,8 +8,3 @@ export const campaignFactoryWriteAbi = [
       { name: "goal", type: "uint256" },
       { name: "duration", type: "uint256" },
       { name: "milestoneDescriptions", type: "string[]" },
-      { name: "milestoneAmounts", type: "uint256[]" },
-    ],
-    outputs: [],
-  },
-] as const;
