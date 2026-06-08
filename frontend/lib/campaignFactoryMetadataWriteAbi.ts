@@ -1,0 +1,1 @@
+export const campaignFactoryMetadataWriteAbi=[{type:"function",name:"createCampaignWithMetadata",stateMutability:"nonpayable",inputs:[{type:"string"},{type:"string"},{type:"uint256"},{type:"uint256"},{type:"string[]"},{type:"uint256[]"}],outputs:[{type:"address"}]}] as const;
