@@ -7,5 +7,4 @@ export const campaignFactoryWriteAbi = [
       { name: "description", type: "string" },
       { name: "goal", type: "uint256" },
       { name: "duration", type: "uint256" },
-      { name: "milestoneDescriptions", type: "string[]" },
-      { name: "milestoneAmounts", type: "
+      { name: "milestoneDescriptions",
