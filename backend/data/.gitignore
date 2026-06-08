@@ -1,0 +1,4 @@
+# File-backed alpha backend store.
+# Runtime data must not be committed.
+*
+!.gitignore
