@@ -1,8 +1,12 @@
 export const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, "") || "http://localhost:8787";
 
-export async function backendRequest(path: string, body?: unknown) {
-  const response = await fetch(`${BACKEND_BASE_URL}${path}`, {
-    method: body === undefined ? "GET" : "POST",
+export async function createBackendSubmission(payload: unknown) {
+  const res = await fetch(`${BACKEND_BASE_URL}/submissions`, {
+    method: "POST",
     headers: { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: JSON.stringify(payload),
   });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Backend request failed");
+  return data.submission;
+}
