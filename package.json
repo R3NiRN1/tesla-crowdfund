@@ -8,6 +8,8 @@
     "setup": "node scripts/setup.mjs",
     "doctor": "node scripts/doctor.mjs",
     "preflight": "node scripts/preflight.mjs",
+    "backend:dev": "node backend/server.mjs",
+    "backend:check": "node backend/check.mjs",
     "test:contracts": "hardhat test",
     "build:frontend": "npm --prefix frontend ci && npm --prefix frontend run build",
     "deploy:testnet": "npm run preflight && hardhat run scripts/deploy.ts --network bscTestnet",

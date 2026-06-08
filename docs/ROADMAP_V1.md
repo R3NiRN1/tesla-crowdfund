@@ -20,6 +20,8 @@ Add metadata-aware campaign creation without breaking the existing funding core.
 
 Add a real backend package with wallet auth, user records, moderation records, and submission records.
 
+Backend foundation alpha note: the first backend MVP layer is file-backed and local-alpha only. It introduces the platform state model, review workflow boundary, publish-record boundary, and audit log without yet claiming production storage, production auth, uploads, or an indexed public read model.
+
 5. Submission + uploads
 
 Replace browser-only draft storage with backend-backed drafts, uploads, and moderation states.
