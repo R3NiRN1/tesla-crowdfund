@@ -1,16 +1,12 @@
-export type BackendSubmissionStatus = "draft" | "pending_review" | "approved" | "rejected" | "published";
+export const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, "") || "http://localhost:8787";
 
-export type BackendSubmission = {
-  id: string;
-  status: BackendSubmissionStatus;
-  creatorAddress: string;
-  title: string;
-  shortDescription: string;
-  longDescription: string;
-  imageUrl: string;
-  metadataUri: string;
-  contractInput: unknown;
-  review: unknown;
-  publish: unknown;
-  createdAt: string;
-  updated
+async function request(path: string, options: RequestInit = {}) {
+  const response = await fetch(`${BACKEND_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      "content-type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+
+  const data
