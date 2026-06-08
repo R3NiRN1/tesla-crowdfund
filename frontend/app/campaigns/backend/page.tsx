@@ -1,13 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { useAccount } from "wagmi";
-
 import AlphaNavigation from "@/components/AlphaNavigation";
-import ConnectWallet from "@/components/ConnectWallet";
-import WalletBar from "@/components/WalletBar";
-import { createBackendSubmission } from "@/lib/backendClient";
+import { BACKEND_BASE_URL } from "@/lib/backendClient";
 
 export default function BackendCampaignPage() {
-  const { address, isConnected } = useAccount();
-  const [title
+  return (
+    <main className="alpha-shell">
+      <div className="alpha-container">
+        <header className="alpha-header">
+          <div>
+            <p className="eyebrow">Backend-backed creator flow</p>
+            <h1>Backend submissions</h1>
+            <
