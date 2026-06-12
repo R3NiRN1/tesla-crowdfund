@@ -7,17 +7,40 @@ It is intentionally small and dependency-light. It uses Node's built-in HTTP ser
 ## What is real in this PR
 
 - A backend process can run locally.
-- Campaign submissions can be stored server-side.
-- Submission states exist:
-  - `draft`
-  - `pending_review`
-  - `approved`
-  - `rejected`
-  - `published`
+- Campaign submission drafts can be stored and edited server-side.
+- Every draft stores a readiness result for the metadata-aware campaign contract.
+- Invalid drafts cannot enter review.
+- Submission states are guarded: `draft`, `pending_review`, `approved`, `rejected`, and `published`.
 - Admin review endpoints exist.
 - Publish records can be attached after approval.
-- A local audit log records state changes.
+- A local audit log records draft and state changes.
 - Nonces can be issued and consumed for future wallet auth.
+
+## Submission readiness
+
+Each submission stores:
+
+```json
+{
+  "readiness": {
+    "state": "incomplete",
+    "reasons": ["metadataURI: is required"],
+    "checkedAt": "2026-06-12T00:00:00.000Z"
+  }
+}
+```
+
+`readiness.state` is either `incomplete` or `contract-ready`. The validator checks `creatorAddress`, `title`, `shortDescription`, `contractInput.description`, `metadataURI`, `goal`, `duration`, milestone descriptions, and milestone amounts. Goal and milestone totals are parsed with `BigInt`, and milestone amounts must add up exactly to the goal.
+
+Drafts can be edited with `PATCH /submissions/:id`. A draft can only move to `pending_review` when it is `contract-ready`. The remaining guarded transitions are:
+
+```text
+draft -> pending_review
+pending_review -> approved | rejected
+approved -> published
+rejected -> terminal
+published -> terminal
+```
 
 ## What is still alpha-only
 
@@ -63,14 +86,15 @@ x-admin-token: change-me
 ## API sketch
 
 ```text
-GET  /health
-POST /auth/nonce
-POST /auth/verify
-GET  /submissions
-POST /submissions
-GET  /submissions/:id
-POST /submissions/:id/submit
-POST /admin/submissions/:id/review
-POST /submissions/:id/published
-GET  /audit
+GET   /health
+POST  /auth/nonce
+POST  /auth/verify
+GET   /submissions
+POST  /submissions
+GET   /submissions/:id
+PATCH /submissions/:id
+POST  /submissions/:id/submit
+POST  /admin/submissions/:id/review
+POST  /submissions/:id/published
+GET   /audit
 ```
