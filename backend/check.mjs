@@ -9,6 +9,7 @@ process.env.TESLA_CROWDFUND_BACKEND_DB = tempDb;
 const {
   createSubmission,
   issueNonce,
+  listPublishedCampaigns,
   readStore,
   updateSubmission,
   updateSubmissionStatus,
@@ -113,6 +114,15 @@ try {
   assert.equal(published.status, "published");
   assert.equal(published.publish.metadataURI, validPayload.metadataURI);
 
+  createSubmission({ title: "Hidden draft" });
+  const publicCampaigns = listPublishedCampaigns();
+  assert.equal(publicCampaigns.length, 1);
+  assert.equal(publicCampaigns[0].status, "published");
+  assert.equal(publicCampaigns[0].title, validPayload.title);
+  assert.equal(publicCampaigns[0].creatorVerification, "manually_verified");
+  assert.equal(publicCampaigns[0].campaignAddress, published.publish.campaignAddress);
+  assert.equal(publicCampaigns[0].milestones.length, 3);
+
   const badTotals = validateSubmission({
     ...validPayload,
     contractInput: {
@@ -124,7 +134,7 @@ try {
   assert.ok(badTotals.reasons.some((reason) => reason.includes("add up exactly")));
 
   const store = readStore();
-  assert.equal(store.submissions.length, 1);
+  assert.equal(store.submissions.length, 2);
   assert.ok(store.auditLog.length >= 6);
   console.log("backend:check passed");
 } finally {

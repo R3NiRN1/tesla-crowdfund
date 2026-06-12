@@ -88,6 +88,24 @@ export type BackendPublishInput = {
   publisherAddress: `0x${string}`;
 };
 
+export type PublicCampaign = {
+  id: string;
+  title: string;
+  shortDescription: string;
+  creatorAddress: string;
+  creatorVerification: "unverified" | "manually_verified";
+  status: "published";
+  goal: string;
+  deadline: string;
+  milestones: Array<{ description: string; amount: string }>;
+  campaignAddress: `0x${string}`;
+  transactionHash: `0x${string}`;
+  factoryAddress: `0x${string}`;
+  chainId: number;
+  metadataURI: string;
+  publishedAt: string;
+};
+
 export class BackendClientError extends Error {
   status: number;
   code: string;
@@ -196,4 +214,9 @@ export function recordBackendPublish(id: string, input: BackendPublishInput): Pr
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export async function listPublicCampaigns(): Promise<PublicCampaign[]> {
+  const payload = await requestJson<{ campaigns: PublicCampaign[] }>("/public/campaigns");
+  return payload.campaigns;
 }
