@@ -1,3 +1,5 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -8,40 +10,84 @@ const {
   createSubmission,
   issueNonce,
   readStore,
+  updateSubmission,
   updateSubmissionStatus,
 } = await import("./store.mjs");
+const { READINESS, validateSubmission } = await import("./validation.mjs");
 
-const nonce = issueNonce("0x0000000000000000000000000000000000000001");
-if (!nonce.nonce || !nonce.message.includes(nonce.nonce)) {
-  throw new Error("nonce check failed");
+const validPayload = {
+  creatorAddress: "0x1111111111111111111111111111111111111111",
+  title: "Community Tesla charger buildout",
+  shortDescription: "Funding a community-owned charging site for a regional Tesla club.",
+  metadataURI: "ipfs://bafybeigdyrztcommunitymetadata",
+  contractInput: {
+    description: "Funding a community-owned charging site with clear milestones and TeslaCoin payouts.",
+    goal: "300000000000000000000",
+    duration: "2592000",
+    milestoneDescriptions: ["Site lease", "Electrical work", "Charger installation"],
+    milestoneAmounts: ["100000000000000000000", "120000000000000000000", "80000000000000000000"],
+  },
+};
+
+function expectCode(fn, code) {
+  assert.throws(fn, (error) => error.code === code);
 }
 
-const created = createSubmission({
-  creatorAddress: "0x0000000000000000000000000000000000000001",
-  title: "Backend foundation check",
-  shortDescription: "Check submission",
-  contractInput: {
-    description: "Check submission",
-    goal: "1000000000000000000",
-    duration: "86400",
-    milestoneDescriptions: ["first"],
-    milestoneAmounts: ["1000000000000000000"],
-  },
-});
+try {
+  const nonce = issueNonce(validPayload.creatorAddress);
+  assert.ok(nonce.nonce);
+  assert.ok(nonce.message.includes(nonce.nonce));
 
-const pending = updateSubmissionStatus(created.id, "pending_review", {});
-const approved = updateSubmissionStatus(created.id, "approved", {
-  review: {
-    decision: "approved",
-    note: "check",
-    reviewedAt: new Date().toISOString(),
-  },
-});
+  const invalid = createSubmission({ title: "Draft" });
+  assert.equal(invalid.status, "draft");
+  assert.equal(invalid.readiness.state, READINESS.INCOMPLETE);
+  assert.ok(Array.isArray(invalid.readiness.reasons));
+  assert.ok(invalid.readiness.reasons.length > 0);
+  assert.ok(!Number.isNaN(Date.parse(invalid.readiness.checkedAt)));
+  expectCode(
+    () => updateSubmissionStatus(invalid.id, "pending_review"),
+    "submission-not-contract-ready",
+  );
 
-const store = readStore();
-if (store.submissions.length !== 1) throw new Error("submission was not persisted");
-if (pending.status !== "pending_review") throw new Error("pending status failed");
-if (approved.status !== "approved") throw new Error("approved status failed");
-if (store.auditLog.length < 3) throw new Error("audit log was not written");
+  const repaired = updateSubmission(invalid.id, validPayload);
+  assert.equal(repaired.readiness.state, READINESS.CONTRACT_READY);
+  assert.deepEqual(repaired.readiness.reasons, []);
 
-console.log("backend:check passed");
+  const pending = updateSubmissionStatus(invalid.id, "pending_review", {
+    submittedAt: new Date().toISOString(),
+  });
+  assert.equal(pending.status, "pending_review");
+  expectCode(() => updateSubmission(invalid.id, { title: "Locked" }), "submission-locked");
+
+  const approved = updateSubmissionStatus(invalid.id, "approved", {
+    review: { decision: "approved", reviewedAt: new Date().toISOString() },
+  });
+  assert.equal(approved.status, "approved");
+  expectCode(
+    () => updateSubmissionStatus(invalid.id, "rejected"),
+    "invalid-status-transition",
+  );
+
+  const published = updateSubmissionStatus(invalid.id, "published", {
+    publish: { transactionHash: "0xabc", publishedAt: new Date().toISOString() },
+  });
+  assert.equal(published.status, "published");
+
+  const badTotals = validateSubmission({
+    ...validPayload,
+    contractInput: {
+      ...validPayload.contractInput,
+      milestoneAmounts: ["1", "2", "3"],
+    },
+  });
+  assert.equal(badTotals.state, READINESS.INCOMPLETE);
+  assert.ok(badTotals.reasons.some((reason) => reason.includes("add up exactly")));
+
+  const store = readStore();
+  assert.equal(store.submissions.length, 1);
+  assert.ok(store.auditLog.length >= 6);
+  console.log("backend:check passed");
+} finally {
+  fs.rmSync(tempDb, { force: true });
+  fs.rmSync(`${tempDb}.tmp`, { force: true });
+}
