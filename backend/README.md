@@ -15,6 +15,8 @@ It is intentionally small and dependency-light. It uses Node's built-in HTTP ser
 - Publish records can be attached after approval.
 - Approved creators publish through their own wallet; the backend records confirmed transaction and campaign metadata but never signs.
 - `GET /public/campaigns` exposes a published-only card projection. It is an alpha file-backed read model, not a production indexer.
+- Published campaign projections include platform-review, contract-publication, creator-update, and milestone timeline entries.
+- Admins can record creator-authored campaign updates after confirming the supplied publisher address matches the approved creator.
 - A local audit log records draft and state changes.
 - Nonces can be issued and consumed for future wallet auth.
 
@@ -51,6 +53,7 @@ published -> terminal
 - `ADMIN_TOKEN` is optional. If unset, admin endpoints allow a local alpha bypass.
 - `/auth/verify` consumes nonces but does not yet cryptographically verify signatures.
 - Admin verification is a manual V1 record, not third-party KYC.
+- Campaign update authorship is address-matched by the alpha admin route; cryptographic creator authentication is not implemented yet.
 - Uploads are not implemented.
 - This backend is not production storage.
 
@@ -100,6 +103,7 @@ GET   /submissions/:id
 PATCH /submissions/:id
 POST  /submissions/:id/submit
 POST  /admin/submissions/:id/review
+POST  /admin/submissions/:id/updates
 POST  /submissions/:id/published
 GET   /audit
 ```

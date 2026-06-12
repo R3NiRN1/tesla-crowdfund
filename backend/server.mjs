@@ -2,6 +2,7 @@ import http from "node:http";
 import { URL } from "node:url";
 
 import {
+  addCampaignUpdate,
   consumeNonce,
   createSubmission,
   issueNonce,
@@ -252,6 +253,14 @@ async function handler(req, res) {
     });
 
     send(res, 200, { submission });
+    return;
+  }
+
+  if (req.method === "POST" && parts[0] === "admin" && parts[1] === "submissions" && parts[3] === "updates") {
+    const admin = requireAdmin(req);
+    const body = await readBody(req);
+    const update = addCampaignUpdate(parts[2], body);
+    send(res, 201, { update, admin });
     return;
   }
 

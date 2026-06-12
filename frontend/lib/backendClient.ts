@@ -104,6 +104,15 @@ export type PublicCampaign = {
   chainId: number;
   metadataURI: string;
   publishedAt: string;
+  timeline: Array<{
+    id: string;
+    type: "platform_review" | "contract_published" | "campaign_update" | "milestone";
+    source: "platform" | "chain" | "creator";
+    title: string;
+    detail: string;
+    timestamp: string | null;
+    milestoneIndex: number | null;
+  }>;
 };
 
 export class BackendClientError extends Error {
