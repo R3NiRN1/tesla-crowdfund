@@ -116,6 +116,19 @@ function PublishedCampaignCard({ campaign }: { campaign: PublicCampaign }) {
         </div>
       </div>
 
+      {campaign.media.length > 0 && (
+        <div className="media-reference-list" style={{ marginTop: 12 }}>
+          {campaign.media.map((media) => (
+            <a key={media.id} className="media-reference" href={media.uri} target="_blank" rel="noreferrer">
+              <span className={`badge ${media.primary ? "badge-success" : "badge-muted"}`}>
+                {media.primary ? "primary image" : media.kind}
+              </span>
+              <span>{media.label || media.altText || media.uri}</span>
+            </a>
+          ))}
+        </div>
+      )}
+
       <div className="detail-grid">
         <div className="detail-item"><strong>Raised on-chain</strong>{totalContributed === undefined ? "unavailable" : formatTes(totalContributed.toString())}</div>
         <div className="detail-item"><strong>Goal</strong>{formatTes((goal ?? BigInt(campaign.goal)).toString())}</div>

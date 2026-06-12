@@ -17,6 +17,8 @@ It is intentionally small and dependency-light. It uses Node's built-in HTTP ser
 - `GET /public/campaigns` exposes a published-only card projection. It is an alpha file-backed read model, not a production indexer.
 - Published campaign projections include platform-review, contract-publication, creator-update, and milestone timeline entries.
 - Admins can record creator-authored campaign updates after confirming the supplied publisher address matches the approved creator.
+- Submissions store up to eight validated external media references with one primary image.
+- `GET /submissions/:id/metadata` assembles canonical campaign metadata from backend-stored fields and media references.
 - A local audit log records draft and state changes.
 - Nonces can be issued and consumed for future wallet auth.
 
@@ -54,7 +56,8 @@ published -> terminal
 - `/auth/verify` consumes nonces but does not yet cryptographically verify signatures.
 - Admin verification is a manual V1 record, not third-party KYC.
 - Campaign update authorship is address-matched by the alpha admin route; cryptographic creator authentication is not implemented yet.
-- Uploads are not implemented.
+- Binary uploads and media hosting are not implemented. Creators must first host files on IPFS, Arweave, or HTTPS storage and save those external references.
+- The metadata endpoint assembles JSON but does not publish it; its resulting external `metadataURI` must be saved before review.
 - This backend is not production storage.
 
 ## Commands
@@ -100,6 +103,7 @@ POST  /auth/verify
 GET   /submissions
 POST  /submissions
 GET   /submissions/:id
+GET   /submissions/:id/metadata
 PATCH /submissions/:id
 POST  /submissions/:id/submit
 POST  /admin/submissions/:id/review

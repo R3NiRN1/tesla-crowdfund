@@ -11,6 +11,7 @@ import WalletBar from "@/components/WalletBar";
 import {
   BackendClientError,
   createBackendSubmission,
+  getBackendSubmissionMetadata,
   getBackendUrl,
   submitBackendSubmission,
   updateBackendSubmission,
@@ -21,6 +22,7 @@ import {
   buildDraftReadiness,
   upsertCampaignDraft,
   type CampaignDraft,
+  type CampaignMediaReference,
   type CampaignMilestoneDraft,
 } from "@/lib/localCampaigns";
 
@@ -31,7 +33,7 @@ type DraftFormState = {
   goalAmount: string;
   startDate: string;
   endDate: string;
-  imageUrl: string;
+  media: CampaignMediaReference[];
   metadataURI: string;
   beneficiaryAddress: string;
   tokenSymbol: string;
@@ -45,7 +47,7 @@ const emptyDraft: DraftFormState = {
   goalAmount: "",
   startDate: "",
   endDate: "",
-  imageUrl: "",
+  media: [],
   metadataURI: "",
   beneficiaryAddress: "",
   tokenSymbol: "TES",
@@ -67,6 +69,15 @@ function trimMilestones(milestones: CampaignMilestoneDraft[]) {
   }));
 }
 
+function trimMedia(media: CampaignMediaReference[]) {
+  return media.map((item) => ({
+    ...item,
+    uri: item.uri.trim(),
+    label: item.label.trim(),
+    altText: item.altText.trim(),
+  }));
+}
+
 export default function NewCampaignPage() {
   const { address, isConnected } = useAccount();
   const [draft, setDraft] = useState<DraftFormState>(emptyDraft);
@@ -81,13 +92,15 @@ export default function NewCampaignPage() {
   const backendUrl = getBackendUrl();
 
   const preview = useMemo(() => {
+    const media = trimMedia(draft.media);
     return {
       ...draft,
       title: draft.title.trim(),
       shortDescription: draft.shortDescription.trim(),
       longDescription: draft.longDescription.trim(),
       goalAmount: draft.goalAmount.trim(),
-      imageUrl: draft.imageUrl.trim(),
+      imageUrl: media.find((item) => item.primary)?.uri ?? "",
+      media,
       metadataURI: draft.metadataURI.trim(),
       beneficiaryAddress: draft.beneficiaryAddress.trim(),
       tokenSymbol: draft.tokenSymbol.trim(),
@@ -107,7 +120,8 @@ export default function NewCampaignPage() {
     title: draft.title.trim(),
     shortDescription: draft.shortDescription.trim(),
     longDescription: draft.longDescription.trim(),
-    imageUrl: draft.imageUrl.trim(),
+    imageUrl: draft.media.find((item) => item.primary)?.uri.trim() ?? "",
+    media: trimMedia(draft.media),
     metadataURI: draft.metadataURI.trim(),
     contractInput: readiness.contractInput,
   }), [address, draft, readiness.contractInput]);
@@ -136,6 +150,41 @@ export default function NewCampaignPage() {
     }));
   };
 
+  const addMediaReference = () => {
+    setDraft((prev) => ({
+      ...prev,
+      media: [
+        ...prev.media,
+        {
+          id: createId("media"),
+          kind: "image",
+          uri: "",
+          label: "",
+          altText: "",
+          primary: prev.media.length === 0,
+        },
+      ],
+    }));
+  };
+
+  const updateMediaReference = (id: string, patch: Partial<CampaignMediaReference>) => {
+    setDraft((prev) => ({
+      ...prev,
+      media: prev.media.map((item) => {
+        if (patch.primary === true) return item.id === id ? { ...item, ...patch } : { ...item, primary: false };
+        return item.id === id ? { ...item, ...patch } : item;
+      }),
+    }));
+  };
+
+  const removeMediaReference = (id: string) => {
+    setDraft((prev) => {
+      const media = prev.media.filter((item) => item.id !== id);
+      if (media.length > 0 && !media.some((item) => item.primary)) media[0] = { ...media[0], primary: true };
+      return { ...prev, media };
+    });
+  };
+
   const saveDraft = () => {
     const now = new Date().toISOString();
     const payload: CampaignDraft = {
@@ -146,7 +195,8 @@ export default function NewCampaignPage() {
       goalAmount: draft.goalAmount.trim(),
       startDate: draft.startDate,
       endDate: draft.endDate,
-      imageUrl: draft.imageUrl.trim(),
+      imageUrl: draft.media.find((item) => item.primary)?.uri.trim() ?? "",
+      media: trimMedia(draft.media),
       metadataURI: draft.metadataURI.trim(),
       beneficiaryAddress: draft.beneficiaryAddress.trim(),
       tokenSymbol: draft.tokenSymbol.trim(),
@@ -196,6 +246,27 @@ export default function NewCampaignPage() {
       setBackendSubmission(submission);
       setBackendSavedFingerprint(backendFingerprint);
       setBackendMessage("Submission sent for review.");
+    } catch (error) {
+      setBackendError(describeBackendError(error));
+    } finally {
+      setBackendBusy(false);
+    }
+  };
+
+  const downloadBackendMetadata = async () => {
+    if (!backendSubmission) return;
+    setBackendBusy(true);
+    setBackendError(null);
+    try {
+      const metadata = await getBackendSubmissionMetadata(backendSubmission.id);
+      const blob = new Blob([JSON.stringify(metadata, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${draft.title.trim() || "campaign"}-metadata.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setBackendMessage("Metadata JSON assembled from the current backend submission.");
     } catch (error) {
       setBackendError(describeBackendError(error));
     } finally {
@@ -324,14 +395,6 @@ export default function NewCampaignPage() {
               />
             </label>
             <label className="form-field">
-              Image URL
-              <input
-                value={draft.imageUrl}
-                onChange={(event) => setDraft((prev) => ({ ...prev, imageUrl: event.target.value }))}
-                placeholder="https://"
-              />
-            </label>
-            <label className="form-field">
               Metadata URI
               <input
                 value={draft.metadataURI}
@@ -340,10 +403,80 @@ export default function NewCampaignPage() {
               />
               <span className="small muted">Required by backend contract readiness.</span>
             </label>
-            <label className="form-field">
-              Upload image
+          </div>
+
+          <div className="panel-warning" style={{ marginTop: 14 }}>
+            Binary uploads are not stored by this alpha backend. Host media on IPFS, Arweave, or HTTPS storage first,
+            then add its external reference below.
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <div className="split-row">
+              <div>
+                <h3>Media references</h3>
+                <p className="section-subtitle">Add up to eight references and select exactly one primary image.</p>
+              </div>
+              <button type="button" className="button-secondary" onClick={addMediaReference} disabled={draft.media.length >= 8}>
+                Add media reference
+              </button>
+            </div>
+            {draft.media.length === 0 ? (
+              <div className="empty-state" style={{ marginTop: 10 }}>No media references. Media is optional.</div>
+            ) : (
+              <div className="draft-list" style={{ marginTop: 10 }}>
+                {draft.media.map((media, index) => (
+                  <div className="draft-item" key={media.id}>
+                    <div className="split-row">
+                      <strong>Media {index + 1}</strong>
+                      <button type="button" className="button-secondary" onClick={() => removeMediaReference(media.id)}>Remove</button>
+                    </div>
+                    <div className="form-grid" style={{ marginTop: 10 }}>
+                      <label className="form-field">
+                        Kind
+                        <select
+                          value={media.kind}
+                          onChange={(event) => updateMediaReference(media.id, { kind: event.target.value as CampaignMediaReference["kind"] })}
+                        >
+                          <option value="image">Image</option>
+                          <option value="video">Video</option>
+                          <option value="document">Document</option>
+                        </select>
+                      </label>
+                      <label className="form-field">
+                        External URI
+                        <input
+                          value={media.uri}
+                          onChange={(event) => updateMediaReference(media.id, { uri: event.target.value })}
+                          placeholder="ipfs://... or https://..."
+                        />
+                      </label>
+                      <label className="form-field">
+                        Label
+                        <input value={media.label} onChange={(event) => updateMediaReference(media.id, { label: event.target.value })} />
+                      </label>
+                      <label className="form-field">
+                        Alt text
+                        <input value={media.altText} onChange={(event) => updateMediaReference(media.id, { altText: event.target.value })} />
+                      </label>
+                    </div>
+                    <label className="button-row" style={{ marginTop: 10 }}>
+                      <input
+                        type="radio"
+                        name="primary-media"
+                        checked={media.primary}
+                        disabled={media.kind !== "image"}
+                        onChange={() => updateMediaReference(media.id, { primary: true })}
+                      />
+                      Primary campaign image
+                    </label>
+                  </div>
+                ))}
+              </div>
+            )}
+            <label className="form-field" style={{ marginTop: 10 }}>
+              Binary upload
               <input type="file" disabled />
-              <span className="small muted">Local upload handling remains scaffold-only.</span>
+              <span className="small muted">Unavailable until a real external storage integration is configured.</span>
             </label>
           </div>
 
@@ -534,6 +667,14 @@ export default function NewCampaignPage() {
               disabled={!canSubmitForReview}
             >
               Submit for review
+            </button>
+            <button
+              type="button"
+              onClick={() => void downloadBackendMetadata()}
+              className="button-secondary"
+              disabled={!backendSubmission || backendBusy || hasUnsavedBackendChanges}
+            >
+              Download backend metadata JSON
             </button>
           </div>
         </section>

@@ -75,6 +75,62 @@ function validateMetadataURI(value, reasons) {
   }
 }
 
+function validateMediaURI(value, field, reasons) {
+  const uri = text(value);
+  if (!uri) {
+    addReason(reasons, field, "is required");
+    return;
+  }
+  if (uri.length > 1024) {
+    addReason(reasons, field, "must be 1024 characters or fewer");
+    return;
+  }
+  if (uri.startsWith("ipfs://")) {
+    if (uri.length === "ipfs://".length) addReason(reasons, field, "must include an IPFS content identifier");
+    return;
+  }
+  try {
+    const parsed = new URL(uri);
+    if (!["https:", "ar:"].includes(parsed.protocol)) {
+      addReason(reasons, field, "must use ipfs://, https://, or ar://");
+    }
+  } catch {
+    addReason(reasons, field, "must be a valid ipfs://, https://, or ar:// URI");
+  }
+}
+
+function validateMediaReferences(value, reasons) {
+  if (value === undefined || value === null) return;
+  if (!Array.isArray(value)) {
+    addReason(reasons, "media", "must be an array");
+    return;
+  }
+  if (value.length > 8) addReason(reasons, "media", "must contain no more than 8 references");
+
+  let primaryCount = 0;
+  value.forEach((item, index) => {
+    const media = item && typeof item === "object" ? item : {};
+    if (!["image", "video", "document"].includes(media.kind)) {
+      addReason(reasons, `media[${index}].kind`, "must be image, video, or document");
+    }
+    validateMediaURI(media.uri, `media[${index}].uri`, reasons);
+    if (text(media.altText).length > 280) {
+      addReason(reasons, `media[${index}].altText`, "must be 280 characters or fewer");
+    }
+    if (text(media.label).length > 120) {
+      addReason(reasons, `media[${index}].label`, "must be 120 characters or fewer");
+    }
+    if (media.primary === true) {
+      primaryCount += 1;
+      if (media.kind !== "image") addReason(reasons, `media[${index}].primary`, "must identify an image");
+    }
+  });
+
+  if (value.length > 0 && primaryCount !== 1) {
+    addReason(reasons, "media", "must contain exactly one primary image reference");
+  }
+}
+
 export function validateSubmission(submission, checkedAt = new Date().toISOString()) {
   const input = submission && typeof submission === "object" ? submission : {};
   const contractInput = input.contractInput && typeof input.contractInput === "object"
@@ -103,6 +159,7 @@ export function validateSubmission(submission, checkedAt = new Date().toISOStrin
   }
 
   validateMetadataURI(input.metadataURI ?? input.metadataUri, reasons);
+  validateMediaReferences(input.media, reasons);
 
   const goal = parsePositiveUint(contractInput.goal, "contractInput.goal", reasons);
   parsePositiveUint(contractInput.duration, "contractInput.duration", reasons);

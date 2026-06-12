@@ -88,16 +88,60 @@ export function appendAudit(store, action, detail = {}) {
 
 function normalizeSubmission(payload, existing = {}) {
   const metadataURI = String(payload.metadataURI ?? payload.metadataUri ?? existing.metadataURI ?? "").trim();
+  const mediaInput = payload.media ?? existing.media ?? [];
+  const media = Array.isArray(mediaInput)
+    ? mediaInput.map((value) => {
+        const item = value && typeof value === "object" ? value : {};
+        return {
+          id: String(item.id || randomUUID()).trim(),
+          kind: String(item.kind || "").trim(),
+          uri: String(item.uri || "").trim(),
+          label: String(item.label || "").trim(),
+          altText: String(item.altText || "").trim(),
+          primary: item.primary === true,
+        };
+      })
+    : mediaInput;
+  const primaryImage = Array.isArray(media) ? media.find((item) => item.primary === true && item.kind === "image") : null;
   return withReadiness({
     ...existing,
     creatorAddress: String(payload.creatorAddress ?? existing.creatorAddress ?? "").trim(),
     title: String(payload.title ?? existing.title ?? "").trim(),
     shortDescription: String(payload.shortDescription ?? existing.shortDescription ?? "").trim(),
     longDescription: String(payload.longDescription ?? existing.longDescription ?? "").trim(),
-    imageUrl: String(payload.imageUrl ?? existing.imageUrl ?? "").trim(),
+    imageUrl: primaryImage?.uri ?? String(payload.imageUrl ?? existing.imageUrl ?? "").trim(),
+    media,
     metadataURI,
     contractInput: payload.contractInput ?? existing.contractInput ?? null,
   });
+}
+
+export function buildSubmissionMetadata(id) {
+  const submission = readStore().submissions.find((item) => item.id === id);
+  if (!submission) {
+    throw backendError(404, "submission-not-found", "submission not found");
+  }
+
+  const media = Array.isArray(submission.media) ? submission.media : [];
+  const primaryImage = media.find((item) => item.primary === true && item.kind === "image") ?? null;
+  return {
+    schema: "tes-crowdfund-campaign/v1",
+    submissionId: submission.id,
+    name: submission.title,
+    description: submission.longDescription || submission.shortDescription,
+    shortDescription: submission.shortDescription,
+    image: primaryImage?.uri ?? null,
+    media: media.map(({ kind, uri, label, altText, primary }) => ({ kind, uri, label, altText, primary })),
+    creator: submission.creatorAddress,
+    campaign: {
+      goal: submission.contractInput?.goal ?? null,
+      duration: submission.contractInput?.duration ?? null,
+      milestones: (submission.contractInput?.milestoneDescriptions ?? []).map((description, index) => ({
+        description,
+        amount: submission.contractInput?.milestoneAmounts?.[index] ?? null,
+      })),
+    },
+  };
 }
 
 export function createSubmission(payload = {}) {
@@ -180,6 +224,7 @@ function publicCampaign(submission) {
     shortDescription: submission.shortDescription,
     creatorAddress: submission.creatorAddress,
     creatorVerification: submission.verification?.state ?? "unverified",
+    media: Array.isArray(submission.media) ? submission.media : [],
     status: "published",
     goal: submission.contractInput.goal,
     deadline,

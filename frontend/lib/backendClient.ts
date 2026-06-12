@@ -1,4 +1,4 @@
-import type { CampaignContractInput } from "./localCampaigns";
+import type { CampaignContractInput, CampaignMediaReference } from "./localCampaigns";
 
 export type BackendReadiness = {
   state: "incomplete" | "contract-ready";
@@ -14,6 +14,7 @@ export type BackendSubmission = {
   shortDescription: string;
   longDescription: string;
   imageUrl: string;
+  media: CampaignMediaReference[];
   metadataURI: string;
   contractInput: CampaignContractInput;
   readiness: BackendReadiness;
@@ -49,6 +50,7 @@ export type BackendSubmissionInput = {
   shortDescription: string;
   longDescription: string;
   imageUrl: string;
+  media: CampaignMediaReference[];
   metadataURI: string;
   contractInput: CampaignContractInput;
 };
@@ -94,6 +96,7 @@ export type PublicCampaign = {
   shortDescription: string;
   creatorAddress: string;
   creatorVerification: "unverified" | "manually_verified";
+  media: CampaignMediaReference[];
   status: "published";
   goal: string;
   deadline: string;
@@ -228,4 +231,27 @@ export function recordBackendPublish(id: string, input: BackendPublishInput): Pr
 export async function listPublicCampaigns(): Promise<PublicCampaign[]> {
   const payload = await requestJson<{ campaigns: PublicCampaign[] }>("/public/campaigns");
   return payload.campaigns;
+}
+
+export type BackendMetadataDocument = {
+  schema: "tes-crowdfund-campaign/v1";
+  submissionId: string;
+  name: string;
+  description: string;
+  shortDescription: string;
+  image: string | null;
+  media: Array<Omit<CampaignMediaReference, "id">>;
+  creator: string;
+  campaign: {
+    goal: string | null;
+    duration: string | null;
+    milestones: Array<{ description: string; amount: string | null }>;
+  };
+};
+
+export async function getBackendSubmissionMetadata(id: string): Promise<BackendMetadataDocument> {
+  const payload = await requestJson<{ metadata: BackendMetadataDocument }>(
+    `/submissions/${encodeURIComponent(id)}/metadata`,
+  );
+  return payload.metadata;
 }

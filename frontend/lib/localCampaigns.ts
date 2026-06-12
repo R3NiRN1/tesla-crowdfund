@@ -25,6 +25,17 @@ export type CampaignMilestoneDraft = {
   amount: string;
 };
 
+export type CampaignMediaKind = "image" | "video" | "document";
+
+export type CampaignMediaReference = {
+  id: string;
+  kind: CampaignMediaKind;
+  uri: string;
+  label: string;
+  altText: string;
+  primary: boolean;
+};
+
 export type CampaignContractInput = {
   description: string;
   goal: string;
@@ -42,6 +53,7 @@ export type CampaignDraft = {
   startDate: string;
   endDate: string;
   imageUrl: string;
+  media: CampaignMediaReference[];
   metadataURI: string;
   beneficiaryAddress: string;
   tokenSymbol: string;
@@ -81,6 +93,7 @@ export type AuditLogEntry = {
 
 type StoredCampaignDraft = Partial<CampaignDraft> & {
   milestones?: unknown;
+  media?: unknown;
   reviewState?: unknown;
   publishState?: unknown;
   publishMetadata?: unknown;
@@ -264,6 +277,24 @@ function normalizeMilestones(value: unknown): CampaignMilestoneDraft[] {
   });
 }
 
+function normalizeMedia(value: unknown): CampaignMediaReference[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item, index) => {
+    const media = item && typeof item === "object" ? item as Partial<CampaignMediaReference> : {};
+    const kind = ["image", "video", "document"].includes(media.kind ?? "")
+      ? media.kind as CampaignMediaKind
+      : "image";
+    return {
+      id: text(media.id) || `media-${index + 1}`,
+      kind,
+      uri: text(media.uri),
+      label: text(media.label),
+      altText: text(media.altText),
+      primary: media.primary === true,
+    };
+  });
+}
+
 function normalizeDraft(draft: StoredCampaignDraft): CampaignDraft {
   const now = new Date().toISOString();
   const publishMetadata = normalizePublishMetadata(draft.publishMetadata);
@@ -276,6 +307,7 @@ function normalizeDraft(draft: StoredCampaignDraft): CampaignDraft {
     startDate: text(draft.startDate),
     endDate: text(draft.endDate),
     imageUrl: text(draft.imageUrl),
+    media: normalizeMedia(draft.media),
     metadataURI: text(draft.metadataURI),
     beneficiaryAddress: text(draft.beneficiaryAddress),
     tokenSymbol: text(draft.tokenSymbol),
