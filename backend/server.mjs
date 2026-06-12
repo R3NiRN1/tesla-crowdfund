@@ -204,13 +204,43 @@ async function handler(req, res) {
       return;
     }
 
+    const publisherAddress = String(body.publisherAddress || "").trim();
+    const transactionHash = String(body.transactionHash || body.txHash || "").trim();
+    const campaignAddress = String(body.campaignAddress || "").trim();
+    const factoryAddress = String(body.factoryAddress || "").trim();
+    const chainId = Number(body.chainId || 0);
+    const metadataURI = String(body.metadataURI || body.metadataUri || "").trim();
+    const addressPattern = /^0x[a-fA-F0-9]{40}$/;
+
+    if (publisherAddress.toLowerCase() !== current.creatorAddress.toLowerCase()) {
+      send(res, 403, { error: "connected publisher must match the approved creator address" });
+      return;
+    }
+    if (!/^0x[a-fA-F0-9]{64}$/.test(transactionHash)) {
+      send(res, 400, { error: "valid transactionHash is required" });
+      return;
+    }
+    if (!addressPattern.test(campaignAddress) || !addressPattern.test(factoryAddress)) {
+      send(res, 400, { error: "valid campaignAddress and factoryAddress are required" });
+      return;
+    }
+    if (!Number.isSafeInteger(chainId) || chainId <= 0) {
+      send(res, 400, { error: "valid chainId is required" });
+      return;
+    }
+    if (!metadataURI || metadataURI !== current.metadataURI) {
+      send(res, 400, { error: "metadataURI must match the approved submission" });
+      return;
+    }
+
     const submission = updateSubmissionStatus(parts[1], "published", {
       publish: {
-        transactionHash: String(body.transactionHash || body.txHash || "").trim(),
-        campaignAddress: String(body.campaignAddress || "").trim(),
-        factoryAddress: String(body.factoryAddress || "").trim(),
-        chainId: Number(body.chainId || 0),
-        metadataURI: String(body.metadataURI || body.metadataUri || current.metadataURI || "").trim(),
+        transactionHash,
+        campaignAddress,
+        factoryAddress,
+        chainId,
+        metadataURI,
+        publisherAddress,
         publishedAt: new Date().toISOString(),
       },
     });

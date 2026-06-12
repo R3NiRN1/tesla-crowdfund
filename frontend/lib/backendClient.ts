@@ -36,6 +36,7 @@ export type BackendSubmission = {
     factoryAddress: string;
     chainId: number;
     metadataURI: string;
+    publisherAddress: string;
     publishedAt: string;
   } | null;
   createdAt: string;
@@ -76,6 +77,15 @@ export type BackendModerationInput = {
   reviewerAddress: string;
   manuallyVerified: boolean;
   verificationNote: string;
+};
+
+export type BackendPublishInput = {
+  transactionHash: `0x${string}`;
+  campaignAddress: `0x${string}`;
+  factoryAddress: `0x${string}`;
+  chainId: number;
+  metadataURI: string;
+  publisherAddress: `0x${string}`;
 };
 
 export class BackendClientError extends Error {
@@ -177,6 +187,13 @@ export function moderateBackendSubmission(
   return requestSubmission(`/admin/submissions/${encodeURIComponent(id)}/review`, {
     method: "POST",
     headers: adminToken ? { "x-admin-token": adminToken } : {},
+    body: JSON.stringify(input),
+  });
+}
+
+export function recordBackendPublish(id: string, input: BackendPublishInput): Promise<BackendSubmission> {
+  return requestSubmission(`/submissions/${encodeURIComponent(id)}/published`, {
+    method: "POST",
     body: JSON.stringify(input),
   });
 }

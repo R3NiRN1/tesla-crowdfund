@@ -13,6 +13,7 @@ It is intentionally small and dependency-light. It uses Node's built-in HTTP ser
 - Submission states are guarded: `draft`, `pending_review`, `approved`, `rejected`, and `published`.
 - Admin review endpoints exist.
 - Publish records can be attached after approval.
+- Approved creators publish through their own wallet; the backend records confirmed transaction and campaign metadata but never signs.
 - A local audit log records draft and state changes.
 - Nonces can be issued and consumed for future wallet auth.
 

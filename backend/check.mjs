@@ -100,9 +100,18 @@ try {
   );
 
   const published = updateSubmissionStatus(invalid.id, "published", {
-    publish: { transactionHash: "0xabc", publishedAt: new Date().toISOString() },
+    publish: {
+      transactionHash: `0x${"a".repeat(64)}`,
+      campaignAddress: "0x3333333333333333333333333333333333333333",
+      factoryAddress: "0x4444444444444444444444444444444444444444",
+      chainId: 97,
+      metadataURI: validPayload.metadataURI,
+      publisherAddress: validPayload.creatorAddress,
+      publishedAt: new Date().toISOString(),
+    },
   });
   assert.equal(published.status, "published");
+  assert.equal(published.publish.metadataURI, validPayload.metadataURI);
 
   const badTotals = validateSubmission({
     ...validPayload,
