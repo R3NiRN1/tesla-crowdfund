@@ -32,11 +32,12 @@ Each submission stores:
 
 `readiness.state` is either `incomplete` or `contract-ready`. The validator checks `creatorAddress`, `title`, `shortDescription`, `contractInput.description`, `metadataURI`, `goal`, `duration`, milestone descriptions, and milestone amounts. Goal and milestone totals are parsed with `BigInt`, and milestone amounts must add up exactly to the goal.
 
-Drafts can be edited with `PATCH /submissions/:id`. A draft can only move to `pending_review` when it is `contract-ready`. The remaining guarded transitions are:
+Drafts and `needs_changes` submissions can be edited with `PATCH /submissions/:id`. A submission can only move to `pending_review` when it is `contract-ready`. The remaining guarded transitions are:
 
 ```text
 draft -> pending_review
-pending_review -> approved | rejected
+pending_review -> needs_changes | approved | rejected
+needs_changes -> pending_review
 approved -> published
 rejected -> terminal
 published -> terminal
@@ -47,6 +48,7 @@ published -> terminal
 - Persistence is file-backed JSON in `backend/data`.
 - `ADMIN_TOKEN` is optional. If unset, admin endpoints allow a local alpha bypass.
 - `/auth/verify` consumes nonces but does not yet cryptographically verify signatures.
+- Admin verification is a manual V1 record, not third-party KYC.
 - Uploads are not implemented.
 - This backend is not production storage.
 

@@ -204,10 +204,14 @@ export default function NewCampaignPage() {
   };
 
   const canSaveToBackend =
-    Boolean(backendUrl) && isConnected && !backendBusy && (!backendSubmission || backendSubmission.status === "draft");
+    Boolean(backendUrl) &&
+    isConnected &&
+    !backendBusy &&
+    (!backendSubmission || ["draft", "needs_changes"].includes(backendSubmission.status));
   const canSubmitForReview =
     !backendBusy &&
-    backendSubmission?.status === "draft" &&
+    backendSubmission !== null &&
+    ["draft", "needs_changes"].includes(backendSubmission.status) &&
     backendSubmission.readiness.state === "contract-ready" &&
     !hasUnsavedBackendChanges;
 
