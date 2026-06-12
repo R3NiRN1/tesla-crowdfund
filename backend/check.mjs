@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import ethersPackage from "ethers";
 
 const tempDb = path.join(os.tmpdir(), `tesla-crowdfund-backend-check-${Date.now()}.json`);
 process.env.TESLA_CROWDFUND_BACKEND_DB = tempDb;
@@ -17,6 +18,9 @@ const {
   updateSubmissionStatus,
 } = await import("./store.mjs");
 const { READINESS, validateSubmission } = await import("./validation.mjs");
+const { verifyWalletSignature } = await import("./auth.mjs");
+const { getBackendConfig } = await import("./config.mjs");
+const { ethers } = ethersPackage;
 
 const validPayload = {
   creatorAddress: "0x1111111111111111111111111111111111111111",
@@ -47,9 +51,63 @@ function expectCode(fn, code) {
 }
 
 try {
-  const nonce = issueNonce(validPayload.creatorAddress);
+  expectCode(
+    () => issueNonce("0x0000000000000000000000000000000000000000"),
+    "invalid-wallet-address",
+  );
+  const wallet = ethers.Wallet.createRandom();
+  const nonce = issueNonce(wallet.address);
   assert.ok(nonce.nonce);
   assert.ok(nonce.message.includes(nonce.nonce));
+  assert.ok(nonce.message.includes(wallet.address.toLowerCase()));
+  assert.ok(Date.parse(nonce.expiresAt) > Date.now());
+
+  const wrongWallet = ethers.Wallet.createRandom();
+  const wrongSignature = await wrongWallet.signMessage(nonce.message);
+  expectCode(
+    () => verifyWalletSignature(wallet.address, nonce.nonce, wrongSignature),
+    "wallet-address-mismatch",
+  );
+
+  const signature = await wallet.signMessage(nonce.message);
+  const authenticated = verifyWalletSignature(wallet.address, nonce.nonce, signature);
+  assert.equal(authenticated.authenticated, true);
+  assert.equal(authenticated.address, wallet.address.toLowerCase());
+  expectCode(
+    () => verifyWalletSignature(wallet.address, nonce.nonce, signature),
+    "invalid-nonce",
+  );
+
+  const superseded = issueNonce(wallet.address);
+  const active = issueNonce(wallet.address);
+  const supersededSignature = await wallet.signMessage(superseded.message);
+  expectCode(
+    () => verifyWalletSignature(wallet.address, superseded.nonce, supersededSignature),
+    "invalid-nonce",
+  );
+  const activeSignature = await wallet.signMessage(active.message);
+  assert.equal(verifyWalletSignature(wallet.address, active.nonce, activeSignature).authenticated, true);
+
+  expectCode(
+    () => getBackendConfig({ NODE_ENV: "production", ADMIN_TOKEN: "short", CORS_ORIGIN: "*" }),
+    "production-admin-token-required",
+  );
+  expectCode(
+    () => getBackendConfig({ NODE_ENV: "production", ADMIN_TOKEN: "a".repeat(24), CORS_ORIGIN: "*" }),
+    "production-cors-origin-required",
+  );
+  expectCode(
+    () => getBackendConfig({ NODE_ENV: "development", CORS_ORIGIN: "https://app.example/path" }),
+    "invalid-cors-origin",
+  );
+  const productionConfig = getBackendConfig({
+    NODE_ENV: "production",
+    ADMIN_TOKEN: "a".repeat(24),
+    CORS_ORIGIN: "https://app.example",
+    BACKEND_PORT: "8787",
+  });
+  assert.equal(productionConfig.production, true);
+  assert.equal(productionConfig.corsOrigin, "https://app.example");
 
   const invalid = createSubmission({ title: "Draft" });
   assert.equal(invalid.status, "draft");
@@ -183,7 +241,7 @@ try {
 
   const store = readStore();
   assert.equal(store.submissions.length, 2);
-  assert.ok(store.auditLog.length >= 6);
+  assert.ok(store.auditLog.length >= 10);
   console.log("backend:check passed");
 } finally {
   fs.rmSync(tempDb, { force: true });

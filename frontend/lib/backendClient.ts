@@ -134,6 +134,19 @@ export function getBackendUrl(): string {
   return (process.env.NEXT_PUBLIC_BACKEND_URL?.trim() ?? "").replace(/\/+$/, "");
 }
 
+export type BackendAuthNonce = {
+  address: string;
+  nonce: string;
+  message: string;
+  expiresAt: string;
+};
+
+export type BackendAuthResult = {
+  authenticated: true;
+  address: string;
+  authenticatedAt: string;
+};
+
 async function requestSubmission(path: string, init: RequestInit): Promise<BackendSubmission> {
   const backendUrl = getBackendUrl();
   if (!backendUrl) {
@@ -176,6 +189,26 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
     );
   }
   return payload;
+}
+
+export function requestBackendAuthNonce(address: string): Promise<BackendAuthNonce> {
+  return requestJson<BackendAuthNonce>("/auth/nonce", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ address }),
+  });
+}
+
+export function verifyBackendAuthSignature(
+  address: string,
+  nonce: string,
+  signature: string,
+): Promise<BackendAuthResult> {
+  return requestJson<BackendAuthResult>("/auth/verify", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ address, nonce, signature }),
+  });
 }
 
 export function createBackendSubmission(input: BackendSubmissionInput): Promise<BackendSubmission> {

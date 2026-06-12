@@ -43,7 +43,7 @@ Hardhat verify plugin, you can run `npx hardhat verify ...` and use
 
    - `BSC_MAINNET_RPC_URL`
    - `DEPLOYER_PRIVATE_KEY`
-   - `CONFIRM_MAINNET=yes`
+   - `CONFIRM_MAINNET=YES`
 
 2) Compile:
 
@@ -67,6 +67,8 @@ Follow the same verification flow as testnet if you add verification tooling.
 - Never commit private keys or `.env` files.
 - Start with a **small test transaction** before full release.
 - Wait for multiple confirmations on mainnet.
+- Run `npm run verify:mvp` and retain the CI run URL for the release commit.
+- Do not treat the current file-backed backend as mainnet-ready storage.
 
 ## Rollback Guidance
 

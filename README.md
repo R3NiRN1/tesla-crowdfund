@@ -1,9 +1,8 @@
 # Tesla Crowdfund — Hardhat + Next.js Monorepo
 
-This repository contains a full-stack **BNB Smart Chain (BSC) testnet + mainnet** dApp.
+This repository contains a full-stack **BNB Smart Chain (BSC) crowdfunding alpha** with testnet workflows and guarded mainnet tooling.
 
-It is built to work **exclusively with the TeslaCoin (ERC-20 compatible) token**
-deployed on **BNB Smart Chain testnet and mainnet**.
+It is built for the TeslaCoin ERC-20 compatible token on BSC. The repository is not evidence of a production or mainnet launch.
 
 ---
 
@@ -13,7 +12,7 @@ deployed on **BNB Smart Chain testnet and mainnet**.
 - **Next.js** — frontend application (`/frontend`)
 - **TeslaCoin ERC-20** — the only supported token
 
-This repo is structured for local development and testing while keeping secrets safe.
+This repo is structured for local development and testing. Secret files are excluded by repository ignore rules, but operators remain responsible for secret scanning and credential handling.
 
 ---
 
@@ -40,7 +39,7 @@ This repo is structured for local development and testing while keeping secrets 
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 20.19+
 - npm
 - Git
 
@@ -61,8 +60,8 @@ Architecture and planning docs:
 ## Alpha testing
 
 Use [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md) to test the current alpha loop:
-demo/read-only dashboard, contract-ready local drafts, local admin review, and
-guarded BSC testnet publish for locally approved drafts.
+backend campaign drafts, readiness validation, manual moderation, creator-wallet
+testnet publication, public trust signals, and external media references.
 
 ## First run (local dev)
 
@@ -186,9 +185,7 @@ Routes added for the new UX:
 - `/campaigns/new` (campaign draft builder)
 - `/admin` (local admin dashboard)
 
-⚠️ **Admin dashboard security (MVP):** admin mode is local-only and does not
-enforce authentication yet. Treat this as a temporary UX-only scaffold until
-a real backend/auth flow is implemented.
+**Admin dashboard security:** backend admin writes support `ADMIN_TOKEN`. Local alpha mode permits an explicit bypass when it is unset; production mode refuses to start without a strong token and explicit CORS origin. Manual review is not production KYC.
 
 ---
 
@@ -216,12 +213,31 @@ a real backend/auth flow is implemented.
 - ✅ Verify deployer address + balance, and set `CONFIRM_MAINNET=YES`.
 - ✅ Deploy with `npm run deploy:mainnet`, then update `frontend/.env.local` and rebuild.
 
+## Release Readiness Gate
+
+Run the full local gate before a release candidate:
+
+```bash
+npm run verify:mvp
+```
+
+This verifies backend state/auth checks, contract compilation, contract metadata tests, environment preflight, frontend lint, and the production frontend build. Passing it means the repository is internally consistent; it does not make the file-backed backend production-ready.
+
+Mainnet remains blocked until all of the following are separately complete:
+
+- Replace file-backed backend persistence with durable, backed-up storage.
+- Enforce signed wallet sessions on creator mutations and audited role-based admin authorization.
+- Complete independent smart-contract security review and remediation.
+- Configure monitored production RPC, HTTPS, explicit CORS, secrets management, rate limiting, logging, and incident response.
+- Run testnet soak testing for contribution, milestone, refund, moderation, metadata, and recovery paths.
+- Record deployed bytecode, verified source, multisig/owner policy, release commit, and rollback communications plan.
+
 ---
 
 ## Security Notes
 
-- Secrets are never committed
-- Only `.env.example` files are tracked
+- `.env` and private-key file patterns are excluded by `.gitignore`.
+- Only `.env.example` files should be tracked; CI or release operations should also run secret scanning.
 - Line endings normalized via `.gitattributes`
 
 ---
