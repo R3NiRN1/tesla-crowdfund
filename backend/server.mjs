@@ -140,6 +140,7 @@ async function handler(req, res) {
     const submission = updateSubmissionStatus(parts[1], "pending_review", {
       submittedAt: new Date().toISOString(),
       submitNote: String(body.note || "").trim(),
+      review: null,
     });
     send(res, 200, { submission });
     return;
@@ -150,18 +151,38 @@ async function handler(req, res) {
     const body = await readBody(req);
     const decision = String(body.decision || "").trim();
 
-    if (!["approved", "rejected"].includes(decision)) {
-      send(res, 400, { error: "decision must be approved or rejected" });
+    if (!["approved", "rejected", "needs_changes"].includes(decision)) {
+      send(res, 400, { error: "decision must be approved, rejected, or needs_changes" });
       return;
     }
+
+    const reviewerAddress = String(body.reviewerAddress || "").trim();
+    if (!/^0x[a-fA-F0-9]{40}$/.test(reviewerAddress)) {
+      send(res, 400, { error: "valid reviewerAddress is required" });
+      return;
+    }
+
+    const manuallyVerified = body.manuallyVerified === true;
+    if (decision === "approved" && !manuallyVerified) {
+      send(res, 422, { error: "manual verification is required before approval" });
+      return;
+    }
+
+    const reviewedAt = new Date().toISOString();
 
     const submission = updateSubmissionStatus(parts[2], decision, {
       review: {
         decision,
         note: String(body.note || "").trim(),
-        reviewerAddress: String(body.reviewerAddress || "").trim(),
-        reviewedAt: new Date().toISOString(),
+        reviewerAddress,
+        reviewedAt,
         alphaAdminBypass: admin.alphaBypass,
+      },
+      verification: {
+        state: manuallyVerified ? "manually_verified" : "unverified",
+        note: String(body.verificationNote || "").trim(),
+        reviewerAddress,
+        verifiedAt: manuallyVerified ? reviewedAt : null,
       },
     });
 

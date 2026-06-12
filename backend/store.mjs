@@ -9,7 +9,8 @@ const DEFAULT_DB_FILE = path.join(DEFAULT_DATA_DIR, "backend-alpha-store.json");
 
 const ALLOWED_TRANSITIONS = Object.freeze({
   draft: new Set(["pending_review"]),
-  pending_review: new Set(["approved", "rejected"]),
+  pending_review: new Set(["needs_changes", "approved", "rejected"]),
+  needs_changes: new Set(["pending_review"]),
   approved: new Set(["published"]),
   rejected: new Set(),
   published: new Set(),
@@ -129,8 +130,8 @@ export function updateSubmission(id, patch = {}) {
   }
 
   const previous = store.submissions[index];
-  if (previous.status !== "draft") {
-    throw backendError(409, "submission-locked", "only draft submissions can be edited");
+  if (!["draft", "needs_changes"].includes(previous.status)) {
+    throw backendError(409, "submission-locked", "only draft or needs-changes submissions can be edited");
   }
 
   const next = normalizeSubmission(patch, {
@@ -172,6 +173,10 @@ export function updateSubmissionStatus(id, status, patch = {}) {
     throw backendError(422, "submission-not-contract-ready", "submission must be contract-ready before it can be submitted");
   }
 
+  if (status === "approved" && patch.verification?.state !== "manually_verified") {
+    throw backendError(422, "manual-verification-required", "manual verification is required before approval");
+  }
+
   const next = withReadiness({
     ...previous,
     ...patch,
@@ -185,6 +190,9 @@ export function updateSubmissionStatus(id, status, patch = {}) {
   appendAudit(store, `submission.${status}`, {
     submissionId: id,
     previousStatus: previous.status,
+    reviewDecision: next.review?.decision ?? null,
+    verificationState: next.verification?.state ?? "unverified",
+    reviewerAddress: next.review?.reviewerAddress ?? null,
   });
   writeStore(store);
   return next;

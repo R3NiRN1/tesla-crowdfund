@@ -59,8 +59,39 @@ try {
   assert.equal(pending.status, "pending_review");
   expectCode(() => updateSubmission(invalid.id, { title: "Locked" }), "submission-locked");
 
+  const changesRequested = updateSubmissionStatus(invalid.id, "needs_changes", {
+    review: {
+      decision: "needs_changes",
+      note: "Clarify the delivery plan.",
+      reviewerAddress: validPayload.creatorAddress,
+      reviewedAt: new Date().toISOString(),
+    },
+    verification: { state: "unverified" },
+  });
+  assert.equal(changesRequested.status, "needs_changes");
+
+  const revised = updateSubmission(invalid.id, {
+    shortDescription: "Funding a community-owned charging site with a clarified regional delivery plan.",
+  });
+  assert.equal(revised.status, "needs_changes");
+
+  updateSubmissionStatus(invalid.id, "pending_review", { review: null });
+  expectCode(
+    () => updateSubmissionStatus(invalid.id, "approved", { verification: { state: "unverified" } }),
+    "manual-verification-required",
+  );
+
   const approved = updateSubmissionStatus(invalid.id, "approved", {
-    review: { decision: "approved", reviewedAt: new Date().toISOString() },
+    review: {
+      decision: "approved",
+      reviewerAddress: validPayload.creatorAddress,
+      reviewedAt: new Date().toISOString(),
+    },
+    verification: {
+      state: "manually_verified",
+      reviewerAddress: validPayload.creatorAddress,
+      verifiedAt: new Date().toISOString(),
+    },
   });
   assert.equal(approved.status, "approved");
   expectCode(
