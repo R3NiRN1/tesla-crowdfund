@@ -108,6 +108,7 @@ export function createSubmission(payload = {}) {
     status: "draft",
     review: null,
     publish: null,
+    updates: [],
     createdAt: now,
     updatedAt: now,
   });
@@ -125,6 +126,53 @@ export function createSubmission(payload = {}) {
 function publicCampaign(submission) {
   const publishedSeconds = BigInt(Math.floor(Date.parse(submission.publish.publishedAt) / 1000));
   const deadline = (publishedSeconds + BigInt(submission.contractInput.duration)).toString();
+  const timeline = [];
+
+  if (submission.verification?.state === "manually_verified") {
+    timeline.push({
+      id: `${submission.id}-platform-review`,
+      type: "platform_review",
+      source: "platform",
+      title: "Manual platform review completed",
+      detail: "Submitted campaign and creator details passed the alpha manual review. This is not production KYC.",
+      timestamp: submission.verification.verifiedAt ?? submission.review?.reviewedAt ?? null,
+      milestoneIndex: null,
+    });
+  }
+
+  timeline.push({
+    id: `${submission.id}-contract-published`,
+    type: "contract_published",
+    source: "chain",
+    title: "Campaign contract published",
+    detail: "The creator wallet published the approved campaign contract and the backend recorded its transaction.",
+    timestamp: submission.publish.publishedAt,
+    milestoneIndex: null,
+  });
+
+  for (const update of submission.updates ?? []) {
+    timeline.push({
+      id: update.id,
+      type: "campaign_update",
+      source: "creator",
+      title: update.title,
+      detail: update.body,
+      timestamp: update.createdAt,
+      milestoneIndex: update.milestoneIndex,
+    });
+  }
+
+  submission.contractInput.milestoneDescriptions.forEach((description, index) => {
+    timeline.push({
+      id: `${submission.id}-milestone-${index}`,
+      type: "milestone",
+      source: "chain",
+      title: description,
+      detail: "Planned campaign milestone. Claim status is read from the campaign contract.",
+      timestamp: null,
+      milestoneIndex: index,
+    });
+  });
 
   return {
     id: submission.id,
@@ -145,6 +193,7 @@ function publicCampaign(submission) {
     chainId: submission.publish.chainId,
     metadataURI: submission.publish.metadataURI,
     publishedAt: submission.publish.publishedAt,
+    timeline,
   };
 }
 
@@ -152,6 +201,66 @@ export function listPublishedCampaigns() {
   return readStore().submissions
     .filter((submission) => submission.status === "published" && submission.publish)
     .map(publicCampaign);
+}
+
+export function addCampaignUpdate(id, payload = {}) {
+  const store = readStore();
+  const index = store.submissions.findIndex((submission) => submission.id === id);
+  if (index === -1) {
+    throw backendError(404, "submission-not-found", "submission not found");
+  }
+
+  const submission = store.submissions[index];
+  if (submission.status !== "published" || !submission.publish) {
+    throw backendError(409, "campaign-not-published", "campaign updates require a published campaign");
+  }
+
+  const publisherAddress = String(payload.publisherAddress || "").trim();
+  if (publisherAddress.toLowerCase() !== submission.creatorAddress.toLowerCase()) {
+    throw backendError(403, "creator-address-mismatch", "update publisher must match the campaign creator address");
+  }
+
+  const title = String(payload.title || "").trim();
+  const body = String(payload.body || "").trim();
+  if (!title || title.length > 120) {
+    throw backendError(400, "invalid-update-title", "update title must be between 1 and 120 characters");
+  }
+  if (!body || body.length > 2000) {
+    throw backendError(400, "invalid-update-body", "update body must be between 1 and 2000 characters");
+  }
+
+  const milestoneIndex = payload.milestoneIndex === null || payload.milestoneIndex === undefined
+    ? null
+    : Number(payload.milestoneIndex);
+  if (
+    milestoneIndex !== null
+    && (!Number.isInteger(milestoneIndex) || milestoneIndex < 0 || milestoneIndex >= submission.contractInput.milestoneDescriptions.length)
+  ) {
+    throw backendError(400, "invalid-milestone-index", "milestoneIndex must identify a campaign milestone");
+  }
+
+  const update = {
+    id: randomUUID(),
+    title,
+    body,
+    milestoneIndex,
+    publisherAddress,
+    createdAt: new Date().toISOString(),
+  };
+
+  store.submissions[index] = {
+    ...submission,
+    updates: [...(submission.updates ?? []), update],
+    updatedAt: update.createdAt,
+  };
+  appendAudit(store, "campaign.update_added", {
+    submissionId: id,
+    updateId: update.id,
+    publisherAddress,
+    milestoneIndex,
+  });
+  writeStore(store);
+  return update;
 }
 
 export function updateSubmission(id, patch = {}) {

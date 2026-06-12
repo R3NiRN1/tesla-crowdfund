@@ -7,6 +7,7 @@ const tempDb = path.join(os.tmpdir(), `tesla-crowdfund-backend-check-${Date.now(
 process.env.TESLA_CROWDFUND_BACKEND_DB = tempDb;
 
 const {
+  addCampaignUpdate,
   createSubmission,
   issueNonce,
   listPublishedCampaigns,
@@ -114,6 +115,22 @@ try {
   assert.equal(published.status, "published");
   assert.equal(published.publish.metadataURI, validPayload.metadataURI);
 
+  expectCode(
+    () => addCampaignUpdate(invalid.id, {
+      title: "Wrong author",
+      body: "This should not be accepted.",
+      publisherAddress: "0x2222222222222222222222222222222222222222",
+    }),
+    "creator-address-mismatch",
+  );
+  const campaignUpdate = addCampaignUpdate(invalid.id, {
+    title: "Site lease signed",
+    body: "The lease is signed and electrical planning is underway.",
+    milestoneIndex: 0,
+    publisherAddress: validPayload.creatorAddress,
+  });
+  assert.equal(campaignUpdate.milestoneIndex, 0);
+
   createSubmission({ title: "Hidden draft" });
   const publicCampaigns = listPublishedCampaigns();
   assert.equal(publicCampaigns.length, 1);
@@ -122,6 +139,10 @@ try {
   assert.equal(publicCampaigns[0].creatorVerification, "manually_verified");
   assert.equal(publicCampaigns[0].campaignAddress, published.publish.campaignAddress);
   assert.equal(publicCampaigns[0].milestones.length, 3);
+  assert.ok(publicCampaigns[0].timeline.some((item) => item.type === "platform_review"));
+  assert.ok(publicCampaigns[0].timeline.some((item) => item.type === "contract_published"));
+  assert.ok(publicCampaigns[0].timeline.some((item) => item.type === "campaign_update"));
+  assert.equal(publicCampaigns[0].timeline.filter((item) => item.type === "milestone").length, 3);
 
   const badTotals = validateSubmission({
     ...validPayload,
