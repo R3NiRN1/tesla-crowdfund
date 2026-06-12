@@ -2,9 +2,21 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useAccount } from "wagmi";
 
 import AlphaNavigation from "@/components/AlphaNavigation";
+import ConnectWallet from "@/components/ConnectWallet";
 import SetupBanner from "@/components/SetupBanner";
+import WalletBar from "@/components/WalletBar";
+import {
+  BackendClientError,
+  createBackendSubmission,
+  getBackendUrl,
+  submitBackendSubmission,
+  updateBackendSubmission,
+  type BackendSubmission,
+  type BackendSubmissionInput,
+} from "@/lib/backendClient";
 import {
   buildDraftReadiness,
   upsertCampaignDraft,
@@ -20,6 +32,7 @@ type DraftFormState = {
   startDate: string;
   endDate: string;
   imageUrl: string;
+  metadataURI: string;
   beneficiaryAddress: string;
   tokenSymbol: string;
   milestones: CampaignMilestoneDraft[];
@@ -33,6 +46,7 @@ const emptyDraft: DraftFormState = {
   startDate: "",
   endDate: "",
   imageUrl: "",
+  metadataURI: "",
   beneficiaryAddress: "",
   tokenSymbol: "TES",
   milestones: [{ id: "milestone-1", description: "", amount: "" }],
@@ -54,10 +68,17 @@ function trimMilestones(milestones: CampaignMilestoneDraft[]) {
 }
 
 export default function NewCampaignPage() {
+  const { address, isConnected } = useAccount();
   const [draft, setDraft] = useState<DraftFormState>(emptyDraft);
   const [savedId, setSavedId] = useState<string | null>(null);
+  const [backendSubmission, setBackendSubmission] = useState<BackendSubmission | null>(null);
+  const [backendSavedFingerprint, setBackendSavedFingerprint] = useState<string | null>(null);
+  const [backendBusy, setBackendBusy] = useState(false);
+  const [backendMessage, setBackendMessage] = useState<string | null>(null);
+  const [backendError, setBackendError] = useState<string | null>(null);
 
   const readiness = useMemo(() => buildDraftReadiness(draft), [draft]);
+  const backendUrl = getBackendUrl();
 
   const preview = useMemo(() => {
     return {
@@ -67,6 +88,7 @@ export default function NewCampaignPage() {
       longDescription: draft.longDescription.trim(),
       goalAmount: draft.goalAmount.trim(),
       imageUrl: draft.imageUrl.trim(),
+      metadataURI: draft.metadataURI.trim(),
       beneficiaryAddress: draft.beneficiaryAddress.trim(),
       tokenSymbol: draft.tokenSymbol.trim(),
       milestones: trimMilestones(draft.milestones),
@@ -79,6 +101,19 @@ export default function NewCampaignPage() {
       createdAt: new Date().toISOString(),
     };
   }, [draft, readiness]);
+
+  const backendPayload = useMemo<BackendSubmissionInput>(() => ({
+    creatorAddress: address ?? "",
+    title: draft.title.trim(),
+    shortDescription: draft.shortDescription.trim(),
+    longDescription: draft.longDescription.trim(),
+    imageUrl: draft.imageUrl.trim(),
+    metadataURI: draft.metadataURI.trim(),
+    contractInput: readiness.contractInput,
+  }), [address, draft, readiness.contractInput]);
+  const backendFingerprint = useMemo(() => JSON.stringify(backendPayload), [backendPayload]);
+  const hasUnsavedBackendChanges =
+    backendSubmission !== null && backendSavedFingerprint !== backendFingerprint;
 
   const updateMilestone = (id: string, patch: Partial<CampaignMilestoneDraft>) => {
     setDraft((prev) => ({
@@ -112,6 +147,7 @@ export default function NewCampaignPage() {
       startDate: draft.startDate,
       endDate: draft.endDate,
       imageUrl: draft.imageUrl.trim(),
+      metadataURI: draft.metadataURI.trim(),
       beneficiaryAddress: draft.beneficiaryAddress.trim(),
       tokenSymbol: draft.tokenSymbol.trim(),
       milestones: trimMilestones(draft.milestones),
@@ -127,6 +163,53 @@ export default function NewCampaignPage() {
     upsertCampaignDraft(payload);
     setSavedId(payload.id);
   };
+
+  const describeBackendError = (error: unknown) => {
+    return error instanceof BackendClientError ? error.message : "Unexpected backend request failure.";
+  };
+
+  const saveBackendDraft = async () => {
+    setBackendBusy(true);
+    setBackendError(null);
+    setBackendMessage(null);
+    try {
+      const submission = backendSubmission
+        ? await updateBackendSubmission(backendSubmission.id, backendPayload)
+        : await createBackendSubmission(backendPayload);
+      setBackendSubmission(submission);
+      setBackendSavedFingerprint(backendFingerprint);
+      setBackendMessage(`Backend draft saved as ${submission.readiness.state}.`);
+    } catch (error) {
+      setBackendError(describeBackendError(error));
+    } finally {
+      setBackendBusy(false);
+    }
+  };
+
+  const submitForReview = async () => {
+    if (!backendSubmission) return;
+    setBackendBusy(true);
+    setBackendError(null);
+    setBackendMessage(null);
+    try {
+      const submission = await submitBackendSubmission(backendSubmission.id);
+      setBackendSubmission(submission);
+      setBackendSavedFingerprint(backendFingerprint);
+      setBackendMessage("Submission sent for review.");
+    } catch (error) {
+      setBackendError(describeBackendError(error));
+    } finally {
+      setBackendBusy(false);
+    }
+  };
+
+  const canSaveToBackend =
+    Boolean(backendUrl) && isConnected && !backendBusy && (!backendSubmission || backendSubmission.status === "draft");
+  const canSubmitForReview =
+    !backendBusy &&
+    backendSubmission?.status === "draft" &&
+    backendSubmission.readiness.state === "contract-ready" &&
+    !hasUnsavedBackendChanges;
 
   const downloadJson = () => {
     const payload = {
@@ -149,24 +232,27 @@ export default function NewCampaignPage() {
       <div className="alpha-container">
         <header className="alpha-header">
           <div>
-            <p className="eyebrow">Local scaffold</p>
+            <p className="eyebrow">Creator submission</p>
             <h1>New draft</h1>
             <p>
-              Save a browser-only campaign draft and prepare the exact local payload for
-              CampaignFactory.createCampaign.
+              Save a campaign draft to the backend, check contract readiness, and submit it for review.
             </p>
           </div>
-          <Link className="button-link" href="/campaigns">
-            Campaign drafts
-          </Link>
+          <div className="alpha-actions">
+            <WalletBar />
+            <ConnectWallet />
+            <Link className="button-link" href="/campaigns">
+              Campaign drafts
+            </Link>
+          </div>
         </header>
 
         <AlphaNavigation active="new" />
         <SetupBanner />
 
         <div className="panel-warning">
-          Drafts and downloaded JSON are local-only scaffold artifacts. They do not deploy a campaign, submit to a
-          backend, or publish anything on-chain.
+          Browser localStorage and JSON downloads remain dev-only fallbacks. Backend submission does not deploy or
+          publish anything on-chain.
         </div>
 
         <section className="panel">
@@ -240,6 +326,15 @@ export default function NewCampaignPage() {
                 onChange={(event) => setDraft((prev) => ({ ...prev, imageUrl: event.target.value }))}
                 placeholder="https://"
               />
+            </label>
+            <label className="form-field">
+              Metadata URI
+              <input
+                value={draft.metadataURI}
+                onChange={(event) => setDraft((prev) => ({ ...prev, metadataURI: event.target.value }))}
+                placeholder="ipfs://... or https://..."
+              />
+              <span className="small muted">Required by backend contract readiness.</span>
             </label>
             <label className="form-field">
               Upload image
@@ -361,16 +456,81 @@ export default function NewCampaignPage() {
 
           <div className="button-row" style={{ marginTop: 16 }}>
             <button type="button" onClick={saveDraft} className="button-primary">
-              Save local draft
+              Save local draft (dev fallback)
             </button>
             <button type="button" onClick={downloadJson} className="button-secondary">
-              Download JSON
+              Download local JSON
             </button>
             {savedId && (
               <span className="small muted">
                 Draft saved locally as {readiness.readiness === "contract-ready" ? "contract-ready" : "incomplete"}.
               </span>
             )}
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="split-row">
+            <div>
+              <h2>Backend submission</h2>
+              <p className="section-subtitle">
+                Save first, then use the backend readiness response to submit for review.
+              </p>
+            </div>
+            {backendSubmission && (
+              <span className={`badge ${backendSubmission.readiness.state === "contract-ready" ? "badge-success" : "badge-warning"}`}>
+                {backendSubmission.readiness.state}
+              </span>
+            )}
+          </div>
+
+          {!backendUrl && (
+            <div className="panel-warning" style={{ marginTop: 14 }}>
+              Set NEXT_PUBLIC_BACKEND_URL to enable backend saves. The local fallback remains dev-only.
+            </div>
+          )}
+          {backendUrl && !isConnected && (
+            <div className="panel-warning" style={{ marginTop: 14 }}>
+              Connect the creator wallet before saving to the backend.
+            </div>
+          )}
+          {backendSubmission && (
+            <div style={{ marginTop: 14 }}>
+              <div className="small muted">
+                Submission {backendSubmission.id} | status: {backendSubmission.status} | checked: {backendSubmission.readiness.checkedAt}
+              </div>
+              {hasUnsavedBackendChanges && (
+                <div className="panel-warning" style={{ marginTop: 10 }}>
+                  The form changed after the last backend save. Save again before submitting for review.
+                </div>
+              )}
+              {backendSubmission.readiness.reasons.length > 0 && (
+                <div className="panel-warning" style={{ marginTop: 10 }}>
+                  <strong>Backend readiness blockers</strong>
+                  <ul style={{ marginBottom: 0 }}>
+                    {backendSubmission.readiness.reasons.map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+          {backendMessage && <div className="panel-success" style={{ marginTop: 14 }}>{backendMessage}</div>}
+          {backendError && <div className="panel-danger" style={{ marginTop: 14 }}>{backendError}</div>}
+
+          <div className="button-row" style={{ marginTop: 16 }}>
+            <button type="button" onClick={saveBackendDraft} className="button-primary" disabled={!canSaveToBackend}>
+              {backendBusy ? "Working..." : backendSubmission ? "Update backend draft" : "Save to backend"}
+            </button>
+            <button
+              type="button"
+              onClick={submitForReview}
+              className={canSubmitForReview ? "button-primary" : "button-disabled"}
+              disabled={!canSubmitForReview}
+            >
+              Submit for review
+            </button>
           </div>
         </section>
 

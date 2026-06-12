@@ -42,6 +42,7 @@ export type CampaignDraft = {
   startDate: string;
   endDate: string;
   imageUrl: string;
+  metadataURI: string;
   beneficiaryAddress: string;
   tokenSymbol: string;
   milestones: CampaignMilestoneDraft[];
@@ -275,6 +276,7 @@ function normalizeDraft(draft: StoredCampaignDraft): CampaignDraft {
     startDate: text(draft.startDate),
     endDate: text(draft.endDate),
     imageUrl: text(draft.imageUrl),
+    metadataURI: text(draft.metadataURI),
     beneficiaryAddress: text(draft.beneficiaryAddress),
     tokenSymbol: text(draft.tokenSymbol),
     milestones: normalizeMilestones(draft.milestones),
