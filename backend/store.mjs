@@ -2,8 +2,25 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
+import { READINESS, withReadiness } from "./validation.mjs";
+
 const DEFAULT_DATA_DIR = path.join(process.cwd(), "backend", "data");
 const DEFAULT_DB_FILE = path.join(DEFAULT_DATA_DIR, "backend-alpha-store.json");
+
+const ALLOWED_TRANSITIONS = Object.freeze({
+  draft: new Set(["pending_review"]),
+  pending_review: new Set(["approved", "rejected"]),
+  approved: new Set(["published"]),
+  rejected: new Set(),
+  published: new Set(),
+});
+
+function backendError(statusCode, code, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.code = code;
+  return error;
+}
 
 function dbFile() {
   return process.env.TESLA_CROWDFUND_BACKEND_DB || DEFAULT_DB_FILE;
@@ -68,74 +85,108 @@ export function appendAudit(store, action, detail = {}) {
   return entry;
 }
 
-export function createSubmission(payload) {
+function normalizeSubmission(payload, existing = {}) {
+  const metadataURI = String(payload.metadataURI ?? payload.metadataUri ?? existing.metadataURI ?? "").trim();
+  return withReadiness({
+    ...existing,
+    creatorAddress: String(payload.creatorAddress ?? existing.creatorAddress ?? "").trim(),
+    title: String(payload.title ?? existing.title ?? "").trim(),
+    shortDescription: String(payload.shortDescription ?? existing.shortDescription ?? "").trim(),
+    longDescription: String(payload.longDescription ?? existing.longDescription ?? "").trim(),
+    imageUrl: String(payload.imageUrl ?? existing.imageUrl ?? "").trim(),
+    metadataURI,
+    contractInput: payload.contractInput ?? existing.contractInput ?? null,
+  });
+}
+
+export function createSubmission(payload = {}) {
   const store = readStore();
   const now = new Date().toISOString();
-
-  const submission = {
+  const submission = normalizeSubmission(payload, {
     id: randomUUID(),
     status: "draft",
-    creatorAddress: String(payload.creatorAddress || "").trim(),
-    title: String(payload.title || "").trim(),
-    shortDescription: String(payload.shortDescription || "").trim(),
-    longDescription: String(payload.longDescription || "").trim(),
-    imageUrl: String(payload.imageUrl || "").trim(),
-    metadataUri: String(payload.metadataUri || "").trim(),
-    contractInput: payload.contractInput || null,
     review: null,
     publish: null,
     createdAt: now,
     updatedAt: now,
-  };
-
-  if (!submission.creatorAddress) {
-    const error = new Error("creatorAddress is required");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (!submission.title) {
-    const error = new Error("title is required");
-    error.statusCode = 400;
-    throw error;
-  }
+  });
 
   store.submissions.unshift(submission);
-  appendAudit(store, "submission.created", { submissionId: submission.id, title: submission.title });
+  appendAudit(store, "submission.created", {
+    submissionId: submission.id,
+    title: submission.title,
+    readiness: submission.readiness.state,
+  });
   writeStore(store);
-
   return submission;
 }
 
+export function updateSubmission(id, patch = {}) {
+  const store = readStore();
+  const index = store.submissions.findIndex((submission) => submission.id === id);
+  if (index === -1) {
+    throw backendError(404, "submission-not-found", "submission not found");
+  }
+
+  const previous = store.submissions[index];
+  if (previous.status !== "draft") {
+    throw backendError(409, "submission-locked", "only draft submissions can be edited");
+  }
+
+  const next = normalizeSubmission(patch, {
+    ...previous,
+    id: previous.id,
+    status: previous.status,
+    review: previous.review,
+    publish: previous.publish,
+    createdAt: previous.createdAt,
+    updatedAt: new Date().toISOString(),
+  });
+
+  store.submissions[index] = next;
+  appendAudit(store, "submission.updated", {
+    submissionId: id,
+    readiness: next.readiness.state,
+  });
+  writeStore(store);
+  return next;
+}
+
 export function updateSubmissionStatus(id, status, patch = {}) {
-  const allowed = new Set(["draft", "pending_review", "approved", "rejected", "published"]);
-  if (!allowed.has(status)) {
-    const error = new Error(`invalid submission status: ${status}`);
-    error.statusCode = 400;
-    throw error;
+  if (!Object.hasOwn(ALLOWED_TRANSITIONS, status)) {
+    throw backendError(400, "invalid-submission-status", `invalid submission status: ${status}`);
   }
 
   const store = readStore();
   const index = store.submissions.findIndex((submission) => submission.id === id);
   if (index === -1) {
-    const error = new Error("submission not found");
-    error.statusCode = 404;
-    throw error;
+    throw backendError(404, "submission-not-found", "submission not found");
   }
 
-  const now = new Date().toISOString();
-  const previous = store.submissions[index];
-  const next = {
+  const previous = withReadiness(store.submissions[index]);
+  if (!ALLOWED_TRANSITIONS[previous.status]?.has(status)) {
+    throw backendError(409, "invalid-status-transition", `cannot move submission from ${previous.status} to ${status}`);
+  }
+
+  if (status === "pending_review" && previous.readiness.state !== READINESS.CONTRACT_READY) {
+    throw backendError(422, "submission-not-contract-ready", "submission must be contract-ready before it can be submitted");
+  }
+
+  const next = withReadiness({
     ...previous,
     ...patch,
+    id: previous.id,
     status,
-    updatedAt: now,
-  };
+    createdAt: previous.createdAt,
+    updatedAt: new Date().toISOString(),
+  });
 
   store.submissions[index] = next;
-  appendAudit(store, `submission.${status}`, { submissionId: id, previousStatus: previous.status });
+  appendAudit(store, `submission.${status}`, {
+    submissionId: id,
+    previousStatus: previous.status,
+  });
   writeStore(store);
-
   return next;
 }
 
@@ -144,9 +195,7 @@ export function issueNonce(address) {
   const normalized = String(address || "").trim().toLowerCase();
 
   if (!/^0x[a-fA-F0-9]{40}$/.test(normalized)) {
-    const error = new Error("valid wallet address is required");
-    error.statusCode = 400;
-    throw error;
+    throw backendError(400, "invalid-wallet-address", "valid wallet address is required");
   }
 
   const nonce = randomUUID();
@@ -177,9 +226,7 @@ export function consumeNonce(address, nonce) {
   });
 
   if (index === -1) {
-    const error = new Error("nonce not found or already used");
-    error.statusCode = 400;
-    throw error;
+    throw backendError(400, "invalid-nonce", "nonce not found or already used");
   }
 
   store.nonces[index] = {
@@ -189,6 +236,5 @@ export function consumeNonce(address, nonce) {
   };
   appendAudit(store, "auth.nonce_consumed", { address: normalized });
   writeStore(store);
-
   return store.nonces[index];
 }

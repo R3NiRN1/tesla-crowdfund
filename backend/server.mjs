@@ -6,6 +6,7 @@ import {
   createSubmission,
   issueNonce,
   readStore,
+  updateSubmission,
   updateSubmissionStatus,
 } from "./store.mjs";
 
@@ -17,7 +18,7 @@ function send(res, statusCode, payload) {
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-methods": "GET,POST,PATCH,OPTIONS",
     "access-control-allow-headers": "content-type,authorization,x-admin-token",
   });
   res.end(`${body}\n`);
@@ -118,6 +119,12 @@ async function handler(req, res) {
     return;
   }
 
+  if (req.method === "PATCH" && parts[0] === "submissions" && parts.length === 2) {
+    const body = await readBody(req);
+    send(res, 200, { submission: updateSubmission(parts[1], body) });
+    return;
+  }
+
   if (req.method === "GET" && parts[0] === "submissions" && parts.length === 2) {
     const submission = getSubmission(parts[1]);
     if (!submission) {
@@ -182,7 +189,7 @@ async function handler(req, res) {
         campaignAddress: String(body.campaignAddress || "").trim(),
         factoryAddress: String(body.factoryAddress || "").trim(),
         chainId: Number(body.chainId || 0),
-        metadataUri: String(body.metadataUri || current.metadataUri || "").trim(),
+        metadataURI: String(body.metadataURI || body.metadataUri || current.metadataURI || "").trim(),
         publishedAt: new Date().toISOString(),
       },
     });
@@ -204,6 +211,7 @@ const server = http.createServer(async (req, res) => {
     await handler(req, res);
   } catch (error) {
     send(res, error.statusCode || 500, {
+      code: error.code || "backend-error",
       error: error.message || "internal server error",
     });
   }
