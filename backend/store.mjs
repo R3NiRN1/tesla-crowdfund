@@ -122,6 +122,38 @@ export function createSubmission(payload = {}) {
   return submission;
 }
 
+function publicCampaign(submission) {
+  const publishedSeconds = BigInt(Math.floor(Date.parse(submission.publish.publishedAt) / 1000));
+  const deadline = (publishedSeconds + BigInt(submission.contractInput.duration)).toString();
+
+  return {
+    id: submission.id,
+    title: submission.title,
+    shortDescription: submission.shortDescription,
+    creatorAddress: submission.creatorAddress,
+    creatorVerification: submission.verification?.state ?? "unverified",
+    status: "published",
+    goal: submission.contractInput.goal,
+    deadline,
+    milestones: submission.contractInput.milestoneDescriptions.map((description, index) => ({
+      description,
+      amount: submission.contractInput.milestoneAmounts[index],
+    })),
+    campaignAddress: submission.publish.campaignAddress,
+    transactionHash: submission.publish.transactionHash,
+    factoryAddress: submission.publish.factoryAddress,
+    chainId: submission.publish.chainId,
+    metadataURI: submission.publish.metadataURI,
+    publishedAt: submission.publish.publishedAt,
+  };
+}
+
+export function listPublishedCampaigns() {
+  return readStore().submissions
+    .filter((submission) => submission.status === "published" && submission.publish)
+    .map(publicCampaign);
+}
+
 export function updateSubmission(id, patch = {}) {
   const store = readStore();
   const index = store.submissions.findIndex((submission) => submission.id === id);

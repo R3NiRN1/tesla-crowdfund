@@ -14,6 +14,7 @@ It is intentionally small and dependency-light. It uses Node's built-in HTTP ser
 - Admin review endpoints exist.
 - Publish records can be attached after approval.
 - Approved creators publish through their own wallet; the backend records confirmed transaction and campaign metadata but never signs.
+- `GET /public/campaigns` exposes a published-only card projection. It is an alpha file-backed read model, not a production indexer.
 - A local audit log records draft and state changes.
 - Nonces can be issued and consumed for future wallet auth.
 
@@ -90,6 +91,7 @@ x-admin-token: change-me
 
 ```text
 GET   /health
+GET   /public/campaigns
 POST  /auth/nonce
 POST  /auth/verify
 GET   /submissions

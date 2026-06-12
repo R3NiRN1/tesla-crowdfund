@@ -5,6 +5,7 @@ import {
   consumeNonce,
   createSubmission,
   issueNonce,
+  listPublishedCampaigns,
   readStore,
   updateSubmission,
   updateSubmissionStatus,
@@ -110,6 +111,11 @@ async function handler(req, res) {
 
   if (req.method === "GET" && url.pathname === "/submissions") {
     send(res, 200, { submissions: readStore().submissions });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/public/campaigns") {
+    send(res, 200, { campaigns: listPublishedCampaigns() });
     return;
   }
 

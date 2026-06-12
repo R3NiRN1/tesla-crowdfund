@@ -9,6 +9,7 @@ import AlphaNavigation from "@/components/AlphaNavigation";
 import ConnectWallet from "@/components/ConnectWallet";
 import FundCampaign from "@/components/FundCampaign";
 import NetworkGuard from "@/components/NetworkGuard";
+import PublishedCampaigns from "@/components/PublishedCampaigns";
 import SetupBanner from "@/components/SetupBanner";
 import WalletBar from "@/components/WalletBar";
 import { campaignWriteAbi } from "@/lib/campaignWriteAbi";
@@ -341,6 +342,8 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        <PublishedCampaigns />
 
         <section id="deployed-campaigns" className="panel">
           <div className="campaign-title-row">
