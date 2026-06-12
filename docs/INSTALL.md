@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **Node.js 18.x (LTS)**
+- **Node.js 20.19 or newer**
 - **npm 9.x** (lockfileVersion 3 in root `package-lock.json`)
 - Git
 
@@ -96,7 +96,7 @@ App runs at: http://localhost:3000
 ## Troubleshooting
 
 - **`Error: Mainnet deploy blocked...`**
-  - Set `CONFIRM_MAINNET=yes` in `.env` before running mainnet deploy.
+  - Set `CONFIRM_MAINNET=YES` in `.env` before running mainnet deploy.
 - **`invalid account` / `could not detect network`**
   - Ensure `DEPLOYER_PRIVATE_KEY` and the RPC URL are set.
 - **Frontend loads but no data**

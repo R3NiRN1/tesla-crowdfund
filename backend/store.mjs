@@ -6,6 +6,8 @@ import { READINESS, withReadiness } from "./validation.mjs";
 
 const DEFAULT_DATA_DIR = path.join(process.cwd(), "backend", "data");
 const DEFAULT_DB_FILE = path.join(DEFAULT_DATA_DIR, "backend-alpha-store.json");
+const NONCE_TTL_MS = 5 * 60 * 1000;
+const MAX_NONCE_RECORDS = 500;
 
 const ALLOWED_TRANSITIONS = Object.freeze({
   draft: new Set(["pending_review"]),
@@ -388,39 +390,74 @@ export function issueNonce(address) {
   const store = readStore();
   const normalized = String(address || "").trim().toLowerCase();
 
-  if (!/^0x[a-fA-F0-9]{40}$/.test(normalized)) {
-    throw backendError(400, "invalid-wallet-address", "valid wallet address is required");
+  if (!/^0x[a-fA-F0-9]{40}$/.test(normalized) || normalized === "0x0000000000000000000000000000000000000000") {
+    throw backendError(400, "invalid-wallet-address", "valid non-zero wallet address is required");
   }
 
+  const issuedAt = new Date();
+  const expiresAt = new Date(issuedAt.getTime() + NONCE_TTL_MS);
   const nonce = randomUUID();
+  const message = [
+    "TES Crowdfund wallet authentication",
+    `Address: ${normalized}`,
+    `Nonce: ${nonce}`,
+    `Issued at: ${issuedAt.toISOString()}`,
+    `Expires at: ${expiresAt.toISOString()}`,
+    "Purpose: authenticate with the non-custodial alpha backend",
+  ].join("\n");
+
+  store.nonces = store.nonces.map((record) => {
+    if (record.address !== normalized || record.used === true) return record;
+    return { ...record, used: true, invalidatedAt: issuedAt.toISOString(), invalidationReason: "superseded" };
+  });
   const record = {
     id: randomUUID(),
     address: normalized,
     nonce,
     used: false,
-    issuedAt: new Date().toISOString(),
+    message,
+    issuedAt: issuedAt.toISOString(),
+    expiresAt: expiresAt.toISOString(),
   };
 
   store.nonces.unshift(record);
+  store.nonces = store.nonces.slice(0, MAX_NONCE_RECORDS);
   appendAudit(store, "auth.nonce_issued", { address: normalized });
   writeStore(store);
 
   return {
     address: normalized,
     nonce,
-    message: `TES Crowdfund backend alpha login nonce: ${nonce}`,
+    message,
+    expiresAt: record.expiresAt,
   };
+}
+
+export function getActiveNonce(address, nonce) {
+  const store = readStore();
+  const normalized = String(address || "").trim().toLowerCase();
+  const record = store.nonces.find((item) => {
+    return item.address === normalized && item.nonce === nonce && item.used === false;
+  });
+  if (!record) {
+    throw backendError(400, "invalid-nonce", "nonce not found, superseded, or already used");
+  }
+  if (!record.expiresAt || Date.parse(record.expiresAt) <= Date.now()) {
+    throw backendError(400, "nonce-expired", "nonce has expired");
+  }
+  return record;
 }
 
 export function consumeNonce(address, nonce) {
   const store = readStore();
   const normalized = String(address || "").trim().toLowerCase();
+  getActiveNonce(normalized, nonce);
   const index = store.nonces.findIndex((record) => {
     return record.address === normalized && record.nonce === nonce && record.used === false;
   });
 
   if (index === -1) {
-    throw backendError(400, "invalid-nonce", "nonce not found or already used");
+    throw backendError(400, "invalid-nonce", "nonce not found, superseded, or already used");
   }
 
   store.nonces[index] = {

@@ -20,7 +20,7 @@ It is intentionally small and dependency-light. It uses Node's built-in HTTP ser
 - Submissions store up to eight validated external media references with one primary image.
 - `GET /submissions/:id/metadata` assembles canonical campaign metadata from backend-stored fields and media references.
 - A local audit log records draft and state changes.
-- Nonces can be issued and consumed for future wallet auth.
+- Wallet authentication verifies a five-minute, single-use nonce signed by the requested EVM address.
 
 ## Submission readiness
 
@@ -52,10 +52,10 @@ published -> terminal
 ## What is still alpha-only
 
 - Persistence is file-backed JSON in `backend/data`.
-- `ADMIN_TOKEN` is optional. If unset, admin endpoints allow a local alpha bypass.
-- `/auth/verify` consumes nonces but does not yet cryptographically verify signatures.
+- `ADMIN_TOKEN` is optional only in local alpha mode. Production startup requires at least 24 characters.
+- Production startup also requires an explicit `CORS_ORIGIN`; wildcard CORS is rejected.
 - Admin verification is a manual V1 record, not third-party KYC.
-- Campaign update authorship is address-matched by the alpha admin route; cryptographic creator authentication is not implemented yet.
+- Signed wallet authentication proves control of an address, but creator mutations are not yet session-authorized.
 - Binary uploads and media hosting are not implemented. Creators must first host files on IPFS, Arweave, or HTTPS storage and save those external references.
 - The metadata endpoint assembles JSON but does not publish it; its resulting external `metadataURI` must be saved before review.
 - This backend is not production storage.
@@ -92,6 +92,14 @@ Then call admin routes with:
 ```text
 x-admin-token: change-me
 ```
+
+Production guardrails:
+
+```bash
+NODE_ENV=production ADMIN_TOKEN=use-a-long-random-secret CORS_ORIGIN=https://app.example npm run backend:dev
+```
+
+`POST /auth/nonce` returns the exact message and expiry to sign. Send the address, nonce, and resulting EIP-191 signature to `POST /auth/verify`. Failed signatures do not consume the nonce; successful verification consumes it and replay attempts fail.
 
 ## API sketch
 

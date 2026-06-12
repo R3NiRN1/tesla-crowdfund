@@ -1,10 +1,12 @@
 import http from "node:http";
 import { URL } from "node:url";
 
+import { verifyWalletSignature } from "./auth.mjs";
+import { getBackendConfig } from "./config.mjs";
+
 import {
   addCampaignUpdate,
   buildSubmissionMetadata,
-  consumeNonce,
   createSubmission,
   issueNonce,
   listPublishedCampaigns,
@@ -13,16 +15,17 @@ import {
   updateSubmissionStatus,
 } from "./store.mjs";
 
-const PORT = Number(process.env.PORT || process.env.BACKEND_PORT || 8787);
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
+const { port: PORT, production: PRODUCTION, adminToken: ADMIN_TOKEN, corsOrigin: CORS_ORIGIN } = getBackendConfig();
 
 function send(res, statusCode, payload) {
   const body = JSON.stringify(payload, null, 2);
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
-    "access-control-allow-origin": "*",
+    "access-control-allow-origin": CORS_ORIGIN,
     "access-control-allow-methods": "GET,POST,PATCH,OPTIONS",
     "access-control-allow-headers": "content-type,authorization,x-admin-token",
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
   });
   res.end(`${body}\n`);
 }
@@ -33,7 +36,10 @@ function readBody(req) {
     req.on("data", (chunk) => {
       body += chunk;
       if (body.length > 1_000_000) {
-        reject(new Error("request body too large"));
+        const error = new Error("request body too large");
+        error.statusCode = 413;
+        error.code = "request-body-too-large";
+        reject(error);
         req.destroy();
       }
     });
@@ -101,13 +107,7 @@ async function handler(req, res) {
 
   if (req.method === "POST" && url.pathname === "/auth/verify") {
     const body = await readBody(req);
-    consumeNonce(body.address, body.nonce);
-
-    send(res, 200, {
-      authenticated: false,
-      address: String(body.address || "").trim().toLowerCase(),
-      note: "Nonce lifecycle is implemented. Cryptographic signature verification is the next auth PR step.",
-    });
+    send(res, 200, verifyWalletSignature(body.address, body.nonce, body.signature));
     return;
   }
 
@@ -152,7 +152,7 @@ async function handler(req, res) {
     return;
   }
 
-  if (req.method === "POST" && parts[0] === "submissions" && parts[2] === "submit") {
+  if (req.method === "POST" && parts.length === 3 && parts[0] === "submissions" && parts[2] === "submit") {
     const body = await readBody(req);
     const submission = updateSubmissionStatus(parts[1], "pending_review", {
       submittedAt: new Date().toISOString(),
@@ -163,7 +163,7 @@ async function handler(req, res) {
     return;
   }
 
-  if (req.method === "POST" && parts[0] === "admin" && parts[1] === "submissions" && parts[3] === "review") {
+  if (req.method === "POST" && parts.length === 4 && parts[0] === "admin" && parts[1] === "submissions" && parts[3] === "review") {
     const admin = requireAdmin(req);
     const body = await readBody(req);
     const decision = String(body.decision || "").trim();
@@ -207,7 +207,7 @@ async function handler(req, res) {
     return;
   }
 
-  if (req.method === "POST" && parts[0] === "submissions" && parts[2] === "published") {
+  if (req.method === "POST" && parts.length === 3 && parts[0] === "submissions" && parts[2] === "published") {
     const body = await readBody(req);
     const current = getSubmission(parts[1]);
 
@@ -266,7 +266,7 @@ async function handler(req, res) {
     return;
   }
 
-  if (req.method === "POST" && parts[0] === "admin" && parts[1] === "submissions" && parts[3] === "updates") {
+  if (req.method === "POST" && parts.length === 4 && parts[0] === "admin" && parts[1] === "submissions" && parts[3] === "updates") {
     const admin = requireAdmin(req);
     const body = await readBody(req);
     const update = addCampaignUpdate(parts[2], body);
@@ -295,5 +295,6 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`TES Crowdfund backend alpha listening on http://localhost:${PORT}`);
-  console.log("File-backed alpha persistence is local only and not production storage.");
+  console.log(`Runtime mode: ${PRODUCTION ? "production guardrails enabled" : "local alpha"}.`);
+  console.log("File-backed persistence remains unsuitable for production or mainnet launch.");
 });
