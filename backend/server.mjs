@@ -3,6 +3,7 @@ import { URL } from "node:url";
 
 import {
   addCampaignUpdate,
+  buildSubmissionMetadata,
   consumeNonce,
   createSubmission,
   issueNonce,
@@ -139,6 +140,15 @@ async function handler(req, res) {
       return;
     }
     send(res, 200, { submission });
+    return;
+  }
+
+  if (req.method === "GET" && parts.length === 3 && parts[0] === "submissions" && parts[2] === "metadata") {
+    send(res, 200, {
+      metadata: buildSubmissionMetadata(parts[1]),
+      storage: "external-reference-only",
+      note: "Upload this JSON and referenced media to external storage, then save its resulting metadataURI on the submission.",
+    });
     return;
   }
 

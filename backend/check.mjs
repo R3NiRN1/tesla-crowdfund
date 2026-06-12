@@ -8,6 +8,7 @@ process.env.TESLA_CROWDFUND_BACKEND_DB = tempDb;
 
 const {
   addCampaignUpdate,
+  buildSubmissionMetadata,
   createSubmission,
   issueNonce,
   listPublishedCampaigns,
@@ -22,6 +23,16 @@ const validPayload = {
   title: "Community Tesla charger buildout",
   shortDescription: "Funding a community-owned charging site for a regional Tesla club.",
   metadataURI: "ipfs://bafybeigdyrztcommunitymetadata",
+  media: [
+    {
+      id: "primary-image",
+      kind: "image",
+      uri: "ipfs://bafybeigdyrztcommunityimage",
+      label: "Campaign rendering",
+      altText: "Rendering of the proposed community charging site",
+      primary: true,
+    },
+  ],
   contractInput: {
     description: "Funding a community-owned charging site with clear milestones and TeslaCoin payouts.",
     goal: "300000000000000000000",
@@ -53,7 +64,13 @@ try {
 
   const repaired = updateSubmission(invalid.id, validPayload);
   assert.equal(repaired.readiness.state, READINESS.CONTRACT_READY);
+  assert.equal(repaired.imageUrl, validPayload.media[0].uri);
   assert.deepEqual(repaired.readiness.reasons, []);
+
+  const metadata = buildSubmissionMetadata(invalid.id);
+  assert.equal(metadata.schema, "tes-crowdfund-campaign/v1");
+  assert.equal(metadata.image, validPayload.media[0].uri);
+  assert.equal(metadata.media.length, 1);
 
   const pending = updateSubmissionStatus(invalid.id, "pending_review", {
     submittedAt: new Date().toISOString(),
@@ -131,7 +148,8 @@ try {
   });
   assert.equal(campaignUpdate.milestoneIndex, 0);
 
-  createSubmission({ title: "Hidden draft" });
+  const hiddenDraft = createSubmission({ title: "Hidden draft", media: [null] });
+  assert.ok(hiddenDraft.readiness.reasons.some((reason) => reason.includes("media[0]")));
   const publicCampaigns = listPublishedCampaigns();
   assert.equal(publicCampaigns.length, 1);
   assert.equal(publicCampaigns[0].status, "published");
@@ -139,6 +157,7 @@ try {
   assert.equal(publicCampaigns[0].creatorVerification, "manually_verified");
   assert.equal(publicCampaigns[0].campaignAddress, published.publish.campaignAddress);
   assert.equal(publicCampaigns[0].milestones.length, 3);
+  assert.equal(publicCampaigns[0].media[0].uri, validPayload.media[0].uri);
   assert.ok(publicCampaigns[0].timeline.some((item) => item.type === "platform_review"));
   assert.ok(publicCampaigns[0].timeline.some((item) => item.type === "contract_published"));
   assert.ok(publicCampaigns[0].timeline.some((item) => item.type === "campaign_update"));
@@ -153,6 +172,14 @@ try {
   });
   assert.equal(badTotals.state, READINESS.INCOMPLETE);
   assert.ok(badTotals.reasons.some((reason) => reason.includes("add up exactly")));
+
+  const badMedia = validateSubmission({
+    ...validPayload,
+    media: [{ kind: "video", uri: "file:///private/video.mp4", primary: true }],
+  });
+  assert.equal(badMedia.state, READINESS.INCOMPLETE);
+  assert.ok(badMedia.reasons.some((reason) => reason.includes("media[0].uri")));
+  assert.ok(badMedia.reasons.some((reason) => reason.includes("primary")));
 
   const store = readStore();
   assert.equal(store.submissions.length, 2);
