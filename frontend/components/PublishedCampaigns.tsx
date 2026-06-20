@@ -31,10 +31,49 @@ function formatDeadline(value: string) {
   return Number.isSafeInteger(milliseconds) ? new Date(milliseconds).toLocaleDateString() : value;
 }
 
-function transactionUrl(campaign: PublicCampaign) {
-  if (campaign.chainId === 97) return `https://testnet.bscscan.com/tx/${campaign.transactionHash}`;
-  if (campaign.chainId === 56) return `https://bscscan.com/tx/${campaign.transactionHash}`;
+function explorerBase(chainId: number) {
+  if (chainId === 97) return "https://testnet.bscscan.com";
+  if (chainId === 56) return "https://bscscan.com";
   return null;
+}
+
+function chainLabel(chainId: number) {
+  if (chainId === 97) return "BSC testnet";
+  if (chainId === 56) return "BSC mainnet";
+  return `chain ${chainId}`;
+}
+
+function transactionUrl(campaign: PublicCampaign) {
+  const explorer = explorerBase(campaign.chainId);
+  return explorer ? `${explorer}/tx/${campaign.transactionHash}` : null;
+}
+
+function addressUrl(chainId: number, address: string) {
+  const explorer = explorerBase(chainId);
+  return explorer ? `${explorer}/address/${address}` : null;
+}
+
+function metadataKind(uri: string) {
+  if (uri.startsWith("ipfs://")) return "IPFS metadata URI";
+  if (uri.startsWith("ar://")) return "Arweave metadata URI";
+  if (uri.startsWith("https://")) return "HTTPS metadata URI";
+  return "metadata URI";
+}
+
+function verificationCopy(state: PublicCampaign["creatorVerification"]) {
+  if (state === "manually_verified") {
+    return {
+      label: "creator manually verified",
+      className: "badge-success",
+      detail: "An admin recorded manual creator and submission checks. This is platform review, not third-party KYC.",
+    };
+  }
+
+  return {
+    label: "creator unverified",
+    className: "badge-warning",
+    detail: "No manual verification record is attached. Treat platform review as limited campaign moderation.",
+  };
 }
 
 function statusBadge(
@@ -89,7 +128,11 @@ function PublishedCampaignCard({ campaign }: { campaign: PublicCampaign }) {
     return Array.isArray(result) && result[2] === true;
   });
   const lifecycle = statusBadge(deadline, goal, totalContributed, claimedMilestones);
+  const verification = verificationCopy(campaign.creatorVerification);
   const txUrl = transactionUrl(campaign);
+  const contractUrl = addressUrl(campaign.chainId, campaign.campaignAddress);
+  const creatorUrl = addressUrl(campaign.chainId, campaign.creatorAddress);
+  const factoryUrl = addressUrl(campaign.chainId, campaign.factoryAddress);
 
   return (
     <article className="draft-item">
@@ -100,19 +143,27 @@ function PublishedCampaignCard({ campaign }: { campaign: PublicCampaign }) {
         </div>
         <div className="button-row">
           <span className="badge badge-success">contract published</span>
-          <span className="badge badge-success">manual platform review</span>
+          <span className={`badge ${verification.className}`}>{verification.label}</span>
           <span className={`badge ${lifecycle.className}`}>{lifecycle.label}</span>
         </div>
       </div>
 
       <div className="trust-grid" style={{ marginTop: 12 }}>
         <div className="trust-note">
-          <strong>Platform-reviewed</strong>
-          <span>Manual alpha review of submitted campaign and creator details. This is not identity verification or production KYC.</span>
+          <strong>Creator status</strong>
+          <span>{verification.detail}</span>
         </div>
         <div className="trust-note">
-          <strong>On-chain evidence</strong>
+          <strong>Platform-reviewed</strong>
+          <span>Backend review approved this listing for publication. It does not guarantee delivery, refunds, or identity.</span>
+        </div>
+        <div className="trust-note">
+          <strong>Contract evidence</strong>
           <span>Publication, funding totals, deadline, refund eligibility, and milestone claims come from the campaign contract.</span>
+        </div>
+        <div className="trust-note">
+          <strong>Metadata proof</strong>
+          <span>{metadataKind(campaign.metadataURI)} saved on the approved backend record and linked below for inspection.</span>
         </div>
       </div>
 
@@ -130,22 +181,27 @@ function PublishedCampaignCard({ campaign }: { campaign: PublicCampaign }) {
       )}
 
       <div className="detail-grid">
+        <div className="detail-item"><strong>Campaign status</strong>{lifecycle.label}</div>
         <div className="detail-item"><strong>Raised on-chain</strong>{totalContributed === undefined ? "unavailable" : formatTes(totalContributed.toString())}</div>
         <div className="detail-item"><strong>Goal</strong>{formatTes((goal ?? BigInt(campaign.goal)).toString())}</div>
         <div className="detail-item"><strong>Deadline</strong>{formatDeadline((deadline ?? BigInt(campaign.deadline)).toString())}</div>
-        <div className="detail-item"><strong>Creator</strong>{short(campaign.creatorAddress)}</div>
-        <div className="detail-item"><strong>Campaign</strong>{short(campaign.campaignAddress)}</div>
+        <div className="detail-item"><strong>Creator</strong>{creatorUrl ? <a href={creatorUrl} target="_blank" rel="noreferrer">{short(campaign.creatorAddress)}</a> : short(campaign.creatorAddress)}</div>
+        <div className="detail-item"><strong>Contract address</strong>{contractUrl ? <a href={contractUrl} target="_blank" rel="noreferrer">{short(campaign.campaignAddress)}</a> : short(campaign.campaignAddress)}</div>
+        <div className="detail-item"><strong>Factory</strong>{factoryUrl ? <a href={factoryUrl} target="_blank" rel="noreferrer">{short(campaign.factoryAddress)}</a> : short(campaign.factoryAddress)}</div>
+        <div className="detail-item"><strong>Network</strong>{chainLabel(campaign.chainId)}</div>
       </div>
 
       <div className="timeline" style={{ marginTop: 14 }}>
         <h3>Updates and milestones</h3>
         {campaign.timeline.map((item) => {
           const milestoneClaimed = item.milestoneIndex === null ? false : claimedMilestones[item.milestoneIndex];
+          const milestone = item.milestoneIndex === null ? null : campaign.milestones[item.milestoneIndex];
           return (
             <div className="timeline-item" key={item.id}>
               <div>
                 <strong>{item.title}</strong>
                 <div className="small muted">{item.detail}</div>
+                {milestone && <div className="small muted">Amount: {formatTes(milestone.amount)}</div>}
                 {item.timestamp && <div className="small muted">{new Date(item.timestamp).toLocaleString()}</div>}
               </div>
               <span className={`badge ${item.type === "milestone" && milestoneClaimed ? "badge-success" : "badge-muted"}`}>
@@ -157,8 +213,12 @@ function PublishedCampaignCard({ campaign }: { campaign: PublicCampaign }) {
       </div>
 
       <div className="button-row" style={{ marginTop: 12 }}>
-        {txUrl && <a href={txUrl} target="_blank" rel="noreferrer">Transaction {short(campaign.transactionHash)}</a>}
-        <a href={campaign.metadataURI} target="_blank" rel="noreferrer">Metadata</a>
+        {txUrl ? (
+          <a href={txUrl} target="_blank" rel="noreferrer">Publish tx {short(campaign.transactionHash)}</a>
+        ) : (
+          <span className="small muted">Publish tx {short(campaign.transactionHash)}</span>
+        )}
+        <a href={campaign.metadataURI} target="_blank" rel="noreferrer">Metadata proof</a>
         <span className="small muted">Published {new Date(campaign.publishedAt).toLocaleString()}</span>
       </div>
     </article>
@@ -195,7 +255,7 @@ export default function PublishedCampaigns() {
           <p className="eyebrow">Published campaigns</p>
           <h2>Backend public listing</h2>
           <p className="section-subtitle">
-            Published records only. Draft, review, rejected, needs-changes, and approved-unpublished submissions are hidden.
+            Published records only. Cards separate platform review from contract evidence for funding, refunds, and milestones.
           </p>
         </div>
         <button type="button" className="button-secondary" onClick={() => void refresh()} disabled={!backendUrl || loading}>
@@ -206,7 +266,7 @@ export default function PublishedCampaigns() {
       {!backendUrl && <div className="panel-warning" style={{ marginTop: 14 }}>Set NEXT_PUBLIC_BACKEND_URL to load the public read model.</div>}
       {error && <div className="panel-danger" style={{ marginTop: 14 }}>{error}</div>}
       {backendUrl && !loading && campaigns.length === 0 && (
-        <div className="empty-state" style={{ marginTop: 14 }}>No published backend campaigns yet.</div>
+        <div className="empty-state" style={{ marginTop: 14 }}>No published backend campaigns yet. Draft, review, rejected, needs-changes, and approved-unpublished records stay hidden.</div>
       )}
 
       <div className="draft-list" style={{ marginTop: 14 }}>

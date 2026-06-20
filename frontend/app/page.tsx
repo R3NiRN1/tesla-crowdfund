@@ -466,6 +466,26 @@ export default function Home() {
                       />
                     </div>
 
+                    <div className="trust-grid" style={{ marginTop: 12 }}>
+                      {selectedView.kind === "demo" ? (
+                        <div className="trust-note">
+                          <strong>Demo data</strong>
+                          <span>Local sample data only. It is not platform-reviewed, published, funded, refundable, or claimable on-chain.</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="trust-note">
+                            <strong>Raw contract read</strong>
+                            <span>These details come directly from the configured factory and campaign contract. Backend review and metadata proof appear in the published listing above.</span>
+                          </div>
+                          <div className="trust-note">
+                            <strong>Contract-controlled funds</strong>
+                            <span>Funding totals, deadline, refund eligibility, and milestone claims follow this campaign contract, not a platform promise.</span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
                     <div className="detail-grid">
                       <div className="detail-item">
                         <strong>Raised</strong>
