@@ -9,8 +9,8 @@ import { erc20Abi } from "@/lib/erc20Abi";
 import { campaignWriteAbi } from "@/lib/campaignWriteAbi";
 
 function short(addr?: string) {
-  if (!addr || typeof addr !== "string") return "—";
-  return addr.slice(0, 6) + "…" + addr.slice(-4);
+  if (!addr || typeof addr !== "string") return "-";
+  return addr.slice(0, 6) + "..." + addr.slice(-4);
 }
 
 export default function FundCampaign({
@@ -159,7 +159,7 @@ export default function FundCampaign({
     }
   }, [approveReceipt.data, refetch]);
 
-  // ✅ THE KEY FIX: notify parent after contribute confirms
+  // Notify the parent after contribute confirms so campaign reads refresh.
   useEffect(() => {
     if (contribReceipt.data?.status === "success") {
       refetch(); // refresh token reads in this component
@@ -228,6 +228,9 @@ export default function FundCampaign({
         <div style={{ marginTop: 6, fontSize: 13, color: "#92400e" }}>
           {disabledReason || "Setup required to enable funding actions."}
         </div>
+        <div style={{ marginTop: 6, fontSize: 12, color: "#92400e" }}>
+          Resolve this wallet or setup state before approving token allowance or sending a contribution.
+        </div>
       </div>
     );
   }
@@ -239,6 +242,10 @@ export default function FundCampaign({
         <div style={{ fontSize: 12, opacity: 0.75 }}>
           Token: {short(token)} ({symbol})
         </div>
+      </div>
+      <div style={{ marginTop: 8, fontSize: 13, color: "#4b5563", lineHeight: 1.45 }}>
+        Step 1 approves token allowance for this campaign contract. Step 2 sends your contribution transaction from
+        your wallet. The platform cannot reverse contract transactions.
       </div>
 
       <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -265,7 +272,7 @@ export default function FundCampaign({
             opacity: !isConnected || parsedAmount <= 0n || isPending || waiting ? 0.6 : 1,
           }}
         >
-          {approveReceipt.isLoading ? "Approving…" : "1) Approve"}
+          {approveReceipt.isLoading ? "Approving..." : "1. Approve allowance"}
         </button>
 
         <button
@@ -279,9 +286,9 @@ export default function FundCampaign({
             cursor: "pointer",
             opacity: !isConnected || parsedAmount <= 0n || needsApproval || isPending || waiting ? 0.6 : 1,
           }}
-          title={needsApproval ? "Approve first (or allowance couldn't be read yet)." : "Send contribute() tx"}
+          title={needsApproval ? "Approve allowance first, or wait for allowance reads to refresh." : "Send contribute() transaction"}
         >
-          {contribReceipt.isLoading ? "Contributing…" : "2) Contribute"}
+          {contribReceipt.isLoading ? "Contributing..." : "2. Contribute"}
         </button>
       </div>
 
@@ -290,24 +297,26 @@ export default function FundCampaign({
           Balance:{" "}
           {typeof balance === "bigint"
             ? `${Number(formatUnits(balance, decimals)).toLocaleString()} ${symbol}`
-            : "—"}
+            : "-"}
         </div>
         <div>
           Allowance:{" "}
           {typeof allowance === "bigint"
             ? `${Number(formatUnits(allowance, decimals)).toLocaleString()} ${symbol}`
-            : "—"}
+            : "-"}
         </div>
 
-        <div style={{ marginTop: 6, opacity: 0.8 }}>Step 1: Approve the campaign to spend your tokens.</div>
+        <div style={{ marginTop: 6, opacity: 0.8 }}>
+          Contributions are only available when your wallet is connected to the configured network.
+        </div>
 
         {lastApproveHash && (
           <div>
             Approve tx: {short(lastApproveHash)}{" "}
             {approveReceipt.data?.status === "success"
-              ? "✅ confirmed"
+              ? "confirmed"
               : approveReceipt.isLoading
-              ? "⏳ pending"
+              ? "pending"
               : ""}
           </div>
         )}
@@ -316,9 +325,9 @@ export default function FundCampaign({
           <div>
             Contribute tx: {short(lastContribHash)}{" "}
             {contribReceipt.data?.status === "success"
-              ? "✅ confirmed"
+              ? "confirmed"
               : contribReceipt.isLoading
-              ? "⏳ pending"
+              ? "pending"
               : ""}
           </div>
         )}

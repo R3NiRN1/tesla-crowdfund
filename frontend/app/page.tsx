@@ -30,6 +30,8 @@ type SelectedCampaign =
       data: CampaignView;
     };
 
+type CampaignLifecycleStatus = "demo" | "active" | "goal_reached" | "refunds" | "completed" | "milestones_pending";
+
 function short(addr?: string | null) {
   if (!addr) return "—";
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
@@ -52,6 +54,32 @@ function formatDeadline(deadline: bigint) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function campaignLifecycle(campaign: CampaignView): { status: CampaignLifecycleStatus; label: string; className: string } {
+  const expired = BigInt(Math.floor(Date.now() / 1000)) > campaign.deadline;
+  const goalMet = campaign.totalContributed >= campaign.goal;
+  if (!expired && !goalMet) return { status: "active", label: "funding active", className: "badge-success" };
+  if (!expired && goalMet) return { status: "goal_reached", label: "goal reached", className: "badge-success" };
+  if (!goalMet) return { status: "refunds", label: "failed / refunds eligible", className: "badge-warning" };
+  if (campaign.milestones.length > 0 && campaign.milestones.every((milestone) => milestone.claimed)) {
+    return { status: "completed", label: "completed", className: "badge-success" };
+  }
+  return { status: "milestones_pending", label: "funded / milestones pending", className: "badge-warning" };
+}
+
+function backerActionCopy(
+  selected: SelectedCampaign,
+  lifecycle: { status: CampaignLifecycleStatus; label: string },
+  writeDisabledReason: string | null,
+) {
+  if (selected.kind === "demo") return "Configure a real factory or open a backend-published record before contributing.";
+  if (writeDisabledReason) return `Resolve wallet or setup state before funding: ${writeDisabledReason}`;
+  if (lifecycle.status === "active") return "Review the published record, risk notes, deadline, and wallet network, then approve and contribute if comfortable.";
+  if (lifecycle.status === "goal_reached") return "Funding target is met. Watch milestone claims and creator updates instead of adding more funds.";
+  if (lifecycle.status === "refunds") return "Deadline passed below goal. Refund eligibility is contract-based for contributors; inspect the contract before acting.";
+  if (lifecycle.status === "completed") return "Milestones are claimed. Review final updates and contract history for delivery confidence.";
+  return "Campaign is funded. Track owner-only milestone claims; funds move through contract calls, not platform custody.";
 }
 
 function AddressValue({
@@ -258,6 +286,14 @@ export default function Home() {
       : networkGuard.blockWrites
       ? networkGuard.message || "Wrong network: switch to the configured chain before sending transactions."
       : null;
+
+  const selectedLifecycle = selectedView
+    ? selectedView.kind === "demo"
+      ? { status: "demo" as const, label: "demo only", className: "badge-demo" }
+      : campaignLifecycle(selectedView.data)
+    : null;
+  const selectedBackerAction =
+    selectedView && selectedLifecycle ? backerActionCopy(selectedView, selectedLifecycle, writeDisabledReason) : null;
 
   const claimMilestone = (index: number) => {
     if (writeDisabledReason || !selectedView || selectedView.kind !== "chain" || !isOwner || !goalReached) return;
@@ -520,6 +556,23 @@ export default function Home() {
                         <div className="progress-bar" style={{ width: `${progressPercent(selectedView.data)}%` }} />
                       </div>
                     </div>
+
+                    {selectedLifecycle && selectedBackerAction && (
+                      <div className="trust-grid" style={{ marginTop: 12 }}>
+                        <div className="trust-note">
+                          <strong>Campaign status</strong>
+                          <div className={`badge ${selectedLifecycle.className}`}>{selectedLifecycle.label}</div>
+                        </div>
+                        <div className="trust-note">
+                          <strong>Backer next action</strong>
+                          <span>{selectedBackerAction}</span>
+                        </div>
+                        <div className="trust-note">
+                          <strong>Refund / claim boundary</strong>
+                          <span>Refunds depend on contract state after the deadline if the goal is not met. Milestone claims are owner-only and contract-controlled after funding.</span>
+                        </div>
+                      </div>
+                    )}
 
                     {selectedView.kind === "demo" ? (
                       <DisabledAction

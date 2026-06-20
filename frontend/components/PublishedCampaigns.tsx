@@ -13,6 +13,9 @@ import {
 import { campaignAbi } from "@/lib/campaignAbi";
 
 type CampaignReadContract = ContractFunctionParameters & { chainId: number };
+type ContractLifecycleStatus = "unavailable" | "active" | "goal_reached" | "refunds" | "completed" | "milestones_pending";
+type ListingFilter = "all" | "verified" | "unverified" | "testnet" | "mainnet";
+type ListingSort = "newest" | "deadline" | "goal";
 
 function short(value: string) {
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
@@ -81,20 +84,49 @@ function statusBadge(
   goal: bigint | undefined,
   totalContributed: bigint | undefined,
   claimedMilestones: boolean[],
-) {
+): { status: ContractLifecycleStatus; label: string; className: string } {
   if (deadline === undefined || goal === undefined || totalContributed === undefined) {
-    return { label: "chain status unavailable", className: "badge-muted" };
+    return { status: "unavailable", label: "chain status unavailable", className: "badge-muted" };
   }
 
   const expired = BigInt(Math.floor(Date.now() / 1000)) > deadline;
   const goalMet = totalContributed >= goal;
-  if (!expired && !goalMet) return { label: "funding active", className: "badge-success" };
-  if (!expired && goalMet) return { label: "goal reached", className: "badge-success" };
-  if (!goalMet) return { label: "failed / refunds eligible", className: "badge-warning" };
+  if (!expired && !goalMet) return { status: "active", label: "funding active", className: "badge-success" };
+  if (!expired && goalMet) return { status: "goal_reached", label: "goal reached", className: "badge-success" };
+  if (!goalMet) return { status: "refunds", label: "failed / refunds eligible", className: "badge-warning" };
   if (claimedMilestones.length > 0 && claimedMilestones.every(Boolean)) {
-    return { label: "completed", className: "badge-success" };
+    return { status: "completed", label: "completed", className: "badge-success" };
   }
-  return { label: "funded / milestones pending", className: "badge-warning" };
+  return { status: "milestones_pending", label: "funded / milestones pending", className: "badge-warning" };
+}
+
+function fundingProgress(goal: bigint | undefined, totalContributed: bigint | undefined) {
+  if (goal === undefined || totalContributed === undefined || goal <= 0n) return null;
+  const percent = totalContributed >= goal ? 100 : Number((totalContributed * 10000n) / goal) / 100;
+  return { percent, label: `${percent.toFixed(1)}% funded` };
+}
+
+function backerNextAction(status: ContractLifecycleStatus) {
+  if (status === "active") return "Review creator status, metadata proof, contract address, deadline, and wallet network before contributing.";
+  if (status === "goal_reached") return "Funding target is met. Track milestone claims and creator updates before expecting delivery.";
+  if (status === "refunds") return "Deadline passed below goal. Refund eligibility is contract-based for contributors; inspect the contract history.";
+  if (status === "completed") return "Milestones are claimed. Treat future activity as post-funding reporting.";
+  if (status === "milestones_pending") return "Campaign is funded. Track creator milestone claims; funds move only through contract calls.";
+  return "Chain reads are unavailable. Refresh or inspect the contract directly before making a funding decision.";
+}
+
+function sortableBigInt(value: string) {
+  try {
+    return BigInt(value);
+  } catch {
+    return 0n;
+  }
+}
+
+function compareBigInt(left: bigint, right: bigint) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
 }
 
 function PublishedCampaignCard({ campaign }: { campaign: PublicCampaign }) {
@@ -128,6 +160,7 @@ function PublishedCampaignCard({ campaign }: { campaign: PublicCampaign }) {
     return Array.isArray(result) && result[2] === true;
   });
   const lifecycle = statusBadge(deadline, goal, totalContributed, claimedMilestones);
+  const progress = fundingProgress(goal, totalContributed);
   const verification = verificationCopy(campaign.creatorVerification);
   const txUrl = transactionUrl(campaign);
   const contractUrl = addressUrl(campaign.chainId, campaign.campaignAddress);
@@ -165,6 +198,10 @@ function PublishedCampaignCard({ campaign }: { campaign: PublicCampaign }) {
           <strong>Metadata proof</strong>
           <span>{metadataKind(campaign.metadataURI)} saved on the approved backend record and linked below for inspection.</span>
         </div>
+        <div className="trust-note">
+          <strong>Backer next action</strong>
+          <span>{backerNextAction(lifecycle.status)}</span>
+        </div>
       </div>
 
       {campaign.media.length > 0 && (
@@ -177,6 +214,21 @@ function PublishedCampaignCard({ campaign }: { campaign: PublicCampaign }) {
               <span>{media.label || media.altText || media.uri}</span>
             </a>
           ))}
+        </div>
+      )}
+
+      {progress && (
+        <div style={{ marginTop: 14 }}>
+          <div className="split-row">
+            <strong>{progress.label}</strong>
+            <span className="small muted">{lifecycle.label}</span>
+          </div>
+          <div className="progress-track" aria-hidden="true">
+            <div className="progress-bar" style={{ width: `${progress.percent}%` }} />
+          </div>
+          <div className="small muted" style={{ marginTop: 6 }}>
+            Refunds are contract-based after the deadline if the goal is not met. Milestone claims are contract-controlled after funding.
+          </div>
         </div>
       )}
 
@@ -230,6 +282,8 @@ export default function PublishedCampaigns() {
   const [campaigns, setCampaigns] = useState<PublicCampaign[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [listingFilter, setListingFilter] = useState<ListingFilter>("all");
+  const [listingSort, setListingSort] = useState<ListingSort>("newest");
 
   const refresh = useCallback(async () => {
     if (!backendUrl) return;
@@ -248,6 +302,22 @@ export default function PublishedCampaigns() {
     void refresh();
   }, [refresh]);
 
+  const visibleCampaigns = useMemo(() => {
+    return [...campaigns]
+      .filter((campaign) => {
+        if (listingFilter === "verified") return campaign.creatorVerification === "manually_verified";
+        if (listingFilter === "unverified") return campaign.creatorVerification === "unverified";
+        if (listingFilter === "testnet") return campaign.chainId === 97;
+        if (listingFilter === "mainnet") return campaign.chainId === 56;
+        return true;
+      })
+      .sort((left, right) => {
+        if (listingSort === "deadline") return compareBigInt(sortableBigInt(left.deadline), sortableBigInt(right.deadline));
+        if (listingSort === "goal") return compareBigInt(sortableBigInt(right.goal), sortableBigInt(left.goal));
+        return new Date(right.publishedAt).getTime() - new Date(left.publishedAt).getTime();
+      });
+  }, [campaigns, listingFilter, listingSort]);
+
   return (
     <section className="panel" aria-label="Backend published campaigns">
       <div className="split-row">
@@ -265,12 +335,41 @@ export default function PublishedCampaigns() {
 
       {!backendUrl && <div className="panel-warning" style={{ marginTop: 14 }}>Set NEXT_PUBLIC_BACKEND_URL to load the public read model.</div>}
       {error && <div className="panel-danger" style={{ marginTop: 14 }}>{error}</div>}
+      {backendUrl && campaigns.length > 0 && (
+        <div className="form-grid" style={{ marginTop: 14 }} aria-label="Published campaign discovery controls">
+          <label className="form-field">
+            <span>Filter</span>
+            <select value={listingFilter} onChange={(event) => setListingFilter(event.target.value as ListingFilter)}>
+              <option value="all">All published</option>
+              <option value="verified">Manually verified creators</option>
+              <option value="unverified">Unverified creators</option>
+              <option value="testnet">BSC testnet</option>
+              <option value="mainnet">BSC mainnet</option>
+            </select>
+          </label>
+          <label className="form-field">
+            <span>Sort</span>
+            <select value={listingSort} onChange={(event) => setListingSort(event.target.value as ListingSort)}>
+              <option value="newest">Newest publish record</option>
+              <option value="deadline">Deadline soonest</option>
+              <option value="goal">Largest goal</option>
+            </select>
+          </label>
+          <div className="trust-note">
+            <strong>{visibleCampaigns.length} shown</strong>
+            <span>Only backend-published campaign records appear here. Filters do not expose drafts or moderation queues.</span>
+          </div>
+        </div>
+      )}
       {backendUrl && !loading && campaigns.length === 0 && (
         <div className="empty-state" style={{ marginTop: 14 }}>No published backend campaigns yet. Draft, review, rejected, needs-changes, and approved-unpublished records stay hidden.</div>
       )}
+      {backendUrl && !loading && campaigns.length > 0 && visibleCampaigns.length === 0 && (
+        <div className="empty-state" style={{ marginTop: 14 }}>No published campaigns match the current filter.</div>
+      )}
 
       <div className="draft-list" style={{ marginTop: 14 }}>
-        {campaigns.map((campaign) => <PublishedCampaignCard key={campaign.id} campaign={campaign} />)}
+        {visibleCampaigns.map((campaign) => <PublishedCampaignCard key={campaign.id} campaign={campaign} />)}
       </div>
     </section>
   );
