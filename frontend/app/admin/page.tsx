@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
 
 import AlphaNavigation from "@/components/AlphaNavigation";
@@ -19,9 +19,25 @@ import {
   type BackendSubmission,
 } from "@/lib/backendClient";
 
+type QueueFilter = BackendSubmission["status"] | "all" | "actionable";
+type AuditFilter = "all" | "review" | "publish" | "submission" | "updates" | "auth";
+
+const QUEUE_STATUSES: BackendSubmission["status"][] = [
+  "pending_review",
+  "needs_changes",
+  "approved",
+  "published",
+  "draft",
+  "rejected",
+];
+
 function short(value?: string | null) {
   if (!value) return "-";
   return value.length <= 14 ? value : `${value.slice(0, 8)}...${value.slice(-6)}`;
+}
+
+function statusLabel(value: string) {
+  return value.split("_").join(" ");
 }
 
 function statusBadge(status: BackendSubmission["status"]) {
@@ -34,6 +50,41 @@ function errorMessage(error: unknown) {
   return error instanceof BackendClientError ? error.message : "Unexpected backend request failure.";
 }
 
+function detailString(entry: BackendAuditEntry, key: string) {
+  const value = entry.detail[key];
+  return typeof value === "string" ? value : null;
+}
+
+function auditSubmissionId(entry: BackendAuditEntry) {
+  return detailString(entry, "submissionId");
+}
+
+function auditMatchesFilter(entry: BackendAuditEntry, filter: AuditFilter) {
+  if (filter === "all") return true;
+  if (filter === "review") return ["submission.approved", "submission.rejected", "submission.needs_changes"].includes(entry.action);
+  if (filter === "publish") return entry.action === "submission.published";
+  if (filter === "submission") return entry.action === "submission.created" || entry.action === "submission.updated" || entry.action === "submission.pending_review";
+  if (filter === "updates") return entry.action === "campaign.update_added";
+  return entry.action.startsWith("auth.");
+}
+
+function queueNextStep(submission: BackendSubmission) {
+  if (submission.status === "pending_review") return "Review metadata, milestones, media references, creator wallet, and verification notes before deciding.";
+  if (submission.status === "needs_changes") return "Waiting on creator revision. Use the history below to confirm the requested change before resubmission.";
+  if (submission.status === "approved") return "Creator wallet must publish on-chain; admin should watch for the backend publish record.";
+  if (submission.status === "published") return "Publish record is complete. Public trust signals should now come from backend and contract reads.";
+  if (submission.status === "rejected") return "Terminal moderation state. Creator should start a new corrected submission if needed.";
+  return submission.readiness.state === "contract-ready"
+    ? "Draft is contract-ready but not submitted. Creator must submit it for review."
+    : "Draft is incomplete; creator must resolve readiness blockers before review.";
+}
+
+function formatTime(value?: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
 export default function AdminPage() {
   const { address, isConnected } = useAccount();
   const backendUrl = getBackendUrl();
@@ -43,6 +94,9 @@ export default function AdminPage() {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [verificationNotes, setVerificationNotes] = useState<Record<string, string>>({});
   const [verified, setVerified] = useState<Record<string, boolean>>({});
+  const [queueFilter, setQueueFilter] = useState<QueueFilter>("actionable");
+  const [auditFilter, setAuditFilter] = useState<AuditFilter>("all");
+  const [auditSubmissionFilter, setAuditSubmissionFilter] = useState("all");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -70,6 +124,46 @@ export default function AdminPage() {
     void refresh();
   }, [refresh]);
 
+  const queueCounts = useMemo(() => {
+    const counts: Record<BackendSubmission["status"], number> = {
+      draft: 0,
+      pending_review: 0,
+      needs_changes: 0,
+      approved: 0,
+      rejected: 0,
+      published: 0,
+    };
+    for (const submission of submissions) counts[submission.status] += 1;
+    return counts;
+  }, [submissions]);
+
+  const visibleSubmissions = useMemo(() => {
+    return [...submissions]
+      .filter((submission) => {
+        if (queueFilter === "all") return true;
+        if (queueFilter === "actionable") return ["pending_review", "approved", "needs_changes"].includes(submission.status);
+        return submission.status === queueFilter;
+      })
+      .sort((left, right) => {
+        const leftRank = QUEUE_STATUSES.indexOf(left.status);
+        const rightRank = QUEUE_STATUSES.indexOf(right.status);
+        if (leftRank !== rightRank) return leftRank - rightRank;
+        return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+      });
+  }, [queueFilter, submissions]);
+
+  const visibleAudit = useMemo(() => {
+    return auditLog.filter((entry) => {
+      if (!auditMatchesFilter(entry, auditFilter)) return false;
+      if (auditSubmissionFilter === "all") return true;
+      return auditSubmissionId(entry) === auditSubmissionFilter;
+    });
+  }, [auditFilter, auditLog, auditSubmissionFilter]);
+
+  const approvedUnpublished = queueCounts.approved;
+  const pendingReviews = queueCounts.pending_review;
+  const needsChanges = queueCounts.needs_changes;
+
   const moderate = async (submission: BackendSubmission, decision: BackendModerationDecision) => {
     if (!address) return;
     setBusyId(submission.id);
@@ -87,7 +181,7 @@ export default function AdminPage() {
         },
         adminToken.trim(),
       );
-      setMessage(`${submission.title || "Submission"} marked ${decision.replace("_", " ")}.`);
+      setMessage(`${submission.title || "Submission"} marked ${statusLabel(decision)}.`);
       await refresh();
     } catch (requestError) {
       setError(errorMessage(requestError));
@@ -122,7 +216,7 @@ export default function AdminPage() {
           <div className="panel-warning">Connect the reviewer wallet before taking moderation actions.</div>
         )}
         <div className="panel-warning">
-          Verification is manual for V1. No third-party KYC or automated identity claim is made.
+          Admin operations use backend submissions and audit events as launch truth. Browser state only holds the temporary admin token and unsent form text.
         </div>
 
         <section className="panel">
@@ -144,27 +238,85 @@ export default function AdminPage() {
               placeholder="Optional when backend ADMIN_TOKEN is unset"
               autoComplete="off"
             />
-            <span className="small muted">Held in this page state only and sent as x-admin-token.</span>
+            <span className="small muted">Held in this page state only and sent as x-admin-token. Production launch must set ADMIN_TOKEN.</span>
           </label>
           {message && <div className="panel-success" style={{ marginTop: 14 }}>{message}</div>}
           {error && <div className="panel-danger" style={{ marginTop: 14 }}>{error}</div>}
         </section>
 
         <section className="panel">
-          <h2>Backend review queue</h2>
-          <p className="section-subtitle">
-            {submissions.length} submission{submissions.length === 1 ? "" : "s"}. Actions are available for pending review records.
-          </p>
+          <div className="split-row">
+            <div>
+              <h2>Operations snapshot</h2>
+              <p className="section-subtitle">Queue counts are loaded from the backend submission store and grouped by launch state.</p>
+            </div>
+            <span className={`badge ${pendingReviews > 0 || approvedUnpublished > 0 ? "badge-warning" : "badge-success"}`}>
+              {pendingReviews + approvedUnpublished} launch action{pendingReviews + approvedUnpublished === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div className="stats-grid" style={{ marginTop: 14 }}>
+            {QUEUE_STATUSES.map((status) => (
+              <button
+                key={status}
+                type="button"
+                className="campaign-list-button"
+                onClick={() => setQueueFilter(status)}
+              >
+                <span className={`badge ${statusBadge(status)}`}>{statusLabel(status)}</span>
+                <span className="stat-value">{queueCounts[status]}</span>
+              </button>
+            ))}
+          </div>
+          <div className="trust-grid" style={{ marginTop: 14 }}>
+            <div className="trust-note">
+              <strong>Pending reviews</strong>
+              <span>{pendingReviews} submission{pendingReviews === 1 ? "" : "s"} need admin moderation and manual verification decisions.</span>
+            </div>
+            <div className="trust-note">
+              <strong>Needs changes</strong>
+              <span>{needsChanges} submission{needsChanges === 1 ? "" : "s"} are waiting for creator revision. Check history before resubmission.</span>
+            </div>
+            <div className="trust-note">
+              <strong>Approved unpublished</strong>
+              <span>{approvedUnpublished} approved submission{approvedUnpublished === 1 ? "" : "s"} still require creator wallet publishing.</span>
+            </div>
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="split-row">
+            <div>
+              <h2>Backend review queue</h2>
+              <p className="section-subtitle">
+                Showing {visibleSubmissions.length} of {submissions.length} backend submission{submissions.length === 1 ? "" : "s"}. Actions are available for pending review records.
+              </p>
+            </div>
+            <label className="form-field" style={{ minWidth: 220 }}>
+              Queue state
+              <select value={queueFilter} onChange={(event) => setQueueFilter(event.target.value as QueueFilter)}>
+                <option value="actionable">Launch actions</option>
+                <option value="all">All states</option>
+                {QUEUE_STATUSES.map((status) => (
+                  <option key={status} value={status}>{statusLabel(status)}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
           {submissions.length === 0 ? (
             <div className="empty-state" style={{ marginTop: 14 }}>
               <strong>No backend submissions found.</strong>
               <p>Creator submissions saved through the New draft page will appear here.</p>
             </div>
+          ) : visibleSubmissions.length === 0 ? (
+            <div className="empty-state" style={{ marginTop: 14 }}>No submissions match the current queue filter.</div>
           ) : (
             <div className="draft-list" style={{ marginTop: 14 }}>
-              {submissions.map((submission) => {
+              {visibleSubmissions.map((submission) => {
                 const actionable = submission.status === "pending_review" && isConnected && busyId === null;
                 const manuallyVerified = verified[submission.id] === true;
+                const history = auditLog.filter((entry) => auditSubmissionId(entry) === submission.id);
+                const needsChangesHistory = history.filter((entry) => entry.action === "submission.needs_changes");
                 return (
                   <article key={submission.id} className="draft-item">
                     <div className="split-row">
@@ -176,17 +328,34 @@ export default function AdminPage() {
                         <span className={`badge ${submission.readiness.state === "contract-ready" ? "badge-success" : "badge-warning"}`}>
                           {submission.readiness.state}
                         </span>
-                        <span className={`badge ${statusBadge(submission.status)}`}>{submission.status.replace("_", " ")}</span>
+                        <span className={`badge ${statusBadge(submission.status)}`}>{statusLabel(submission.status)}</span>
                         <span className={`badge ${submission.verification?.state === "manually_verified" ? "badge-success" : "badge-muted"}`}>
-                          {submission.verification?.state?.replace("_", " ") ?? "unverified"}
+                          {statusLabel(submission.verification?.state ?? "unverified")}
                         </span>
+                      </div>
+                    </div>
+
+                    <div className="trust-grid" style={{ marginTop: 12 }}>
+                      <div className="trust-note">
+                        <strong>Admin next action</strong>
+                        <span>{queueNextStep(submission)}</span>
+                      </div>
+                      <div className="trust-note">
+                        <strong>Verification decision</strong>
+                        <span>{submission.verification?.state === "manually_verified" ? "Manual creator and submission checks recorded." : "Not manually verified. Approval stays blocked until the reviewer records manual verification."}</span>
+                      </div>
+                      <div className="trust-note">
+                        <strong>Audit coverage</strong>
+                        <span>{history.length} backend audit event{history.length === 1 ? "" : "s"} reference this submission.</span>
                       </div>
                     </div>
 
                     <div className="detail-grid">
                       <div className="detail-item"><strong>Creator</strong>{short(submission.creatorAddress)}</div>
                       <div className="detail-item"><strong>Metadata</strong>{submission.metadataURI || "not set"}</div>
-                      <div className="detail-item"><strong>Review</strong>{submission.review?.decision?.replace("_", " ") ?? "not reviewed"}</div>
+                      <div className="detail-item"><strong>Review</strong>{submission.review?.decision ? statusLabel(submission.review.decision) : "not reviewed"}</div>
+                      <div className="detail-item"><strong>Reviewer</strong>{short(submission.review?.reviewerAddress)}</div>
+                      <div className="detail-item"><strong>Updated</strong>{formatTime(submission.updatedAt)}</div>
                       <div className="detail-item"><strong>Publish</strong>{submission.publish ? short(submission.publish.transactionHash) : "not published"}</div>
                     </div>
 
@@ -199,7 +368,52 @@ export default function AdminPage() {
                       </div>
                     )}
 
-                    {submission.review?.note && <div className="small muted" style={{ marginTop: 10 }}>Last review note: {submission.review.note}</div>}
+                    {(submission.review?.note || submission.verification?.note) && (
+                      <div className="trust-grid" style={{ marginTop: 12 }}>
+                        {submission.review?.note && (
+                          <div className="trust-note">
+                            <strong>Last review note</strong>
+                            <span>{submission.review.note}</span>
+                          </div>
+                        )}
+                        {submission.verification?.note && (
+                          <div className="trust-note">
+                            <strong>Verification note</strong>
+                            <span>{submission.verification.note}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {needsChangesHistory.length > 0 && (
+                      <div className="timeline" style={{ marginTop: 14 }}>
+                        <h3>Needs-changes history</h3>
+                        {needsChangesHistory.map((entry) => (
+                          <div className="timeline-item" key={entry.id}>
+                            <div>
+                              <strong>{statusLabel(detailString(entry, "reviewDecision") ?? "needs_changes")}</strong>
+                              <div className="small muted">Previous state: {statusLabel(detailString(entry, "previousStatus") ?? "unknown")}</div>
+                              <div className="small muted">Reviewer: {short(detailString(entry, "reviewerAddress"))}</div>
+                            </div>
+                            <span className="small muted">{formatTime(entry.timestamp)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {submission.publish && (
+                      <div className="panel-success" style={{ marginTop: 12 }}>
+                        <strong>Backend publish record</strong>
+                        <div className="detail-grid">
+                          <div className="detail-item"><strong>Campaign</strong>{short(submission.publish.campaignAddress)}</div>
+                          <div className="detail-item"><strong>Transaction</strong>{short(submission.publish.transactionHash)}</div>
+                          <div className="detail-item"><strong>Factory</strong>{short(submission.publish.factoryAddress)}</div>
+                          <div className="detail-item"><strong>Chain</strong>{submission.publish.chainId}</div>
+                          <div className="detail-item"><strong>Publisher</strong>{short(submission.publish.publisherAddress)}</div>
+                          <div className="detail-item"><strong>Published</strong>{formatTime(submission.publish.publishedAt)}</div>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="form-grid" style={{ marginTop: 14 }}>
                       <label className="form-field">
@@ -258,17 +472,51 @@ export default function AdminPage() {
         </section>
 
         <section className="panel">
-          <h2>Backend audit log</h2>
-          <p className="section-subtitle">Submission saves, state changes, review decisions, and publish records are listed newest first.</p>
+          <div className="split-row">
+            <div>
+              <h2>Backend audit log</h2>
+              <p className="section-subtitle">Submission saves, state changes, review decisions, publish records, auth, and update events are listed newest first.</p>
+            </div>
+            <div className="form-grid" style={{ minWidth: 320 }}>
+              <label className="form-field">
+                Event type
+                <select value={auditFilter} onChange={(event) => setAuditFilter(event.target.value as AuditFilter)}>
+                  <option value="all">All events</option>
+                  <option value="review">Review decisions</option>
+                  <option value="publish">Publish records</option>
+                  <option value="submission">Submission lifecycle</option>
+                  <option value="updates">Campaign updates</option>
+                  <option value="auth">Auth events</option>
+                </select>
+              </label>
+              <label className="form-field">
+                Submission
+                <select value={auditSubmissionFilter} onChange={(event) => setAuditSubmissionFilter(event.target.value)}>
+                  <option value="all">All submissions</option>
+                  {submissions.map((submission) => (
+                    <option key={submission.id} value={submission.id}>{submission.title || short(submission.id)}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+          <p className="small muted" style={{ marginTop: 10 }}>
+            Showing {visibleAudit.length} of {auditLog.length} audit event{auditLog.length === 1 ? "" : "s"}.
+          </p>
           {auditLog.length === 0 ? (
             <div className="empty-state" style={{ marginTop: 12 }}>No backend audit events found.</div>
+          ) : visibleAudit.length === 0 ? (
+            <div className="empty-state" style={{ marginTop: 12 }}>No audit events match the current filters.</div>
           ) : (
             <div className="audit-list" style={{ marginTop: 12 }}>
-              {auditLog.map((entry) => (
+              {visibleAudit.map((entry) => (
                 <div key={entry.id} className="draft-item">
-                  <strong>{entry.action}</strong>
+                  <div className="split-row">
+                    <strong>{entry.action}</strong>
+                    <span className="small muted">{formatTime(entry.timestamp)}</span>
+                  </div>
+                  {auditSubmissionId(entry) && <div className="small muted" style={{ marginTop: 6 }}>Submission: {short(auditSubmissionId(entry))}</div>}
                   <pre className="local-json" style={{ marginTop: 8 }}>{JSON.stringify(entry.detail, null, 2)}</pre>
-                  <div className="small muted" style={{ marginTop: 8 }}>{new Date(entry.timestamp).toLocaleString()}</div>
                 </div>
               ))}
             </div>
