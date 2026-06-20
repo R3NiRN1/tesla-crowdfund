@@ -1,75 +1,59 @@
-Decisions
-D-001 — The live GitHub repo is authoritative
+# Decisions
+
+## D-001 - The Live GitHub Repo Is Authoritative
 
 The GitHub repo state is the source of truth for branch topology and current code state. Reduced or detached workspaces are not trusted for branch/process decisions.
 
-D-002 — dev is the integration branch
+## D-002 - `dev` Is The Integration Branch
 
-All active work should branch from dev. main is reserved for verified/release-ready merges.
+All active work should branch from `dev`. `main` is reserved for verified release-ready merges.
 
-D-003 — Browser localStorage is developer convenience, not production truth
+## D-003 - Browser localStorage Is Developer Convenience, Not Production Truth
 
 The following are explicitly not production sources of truth:
 
-teslaCrowdfundConfig:v1
-local campaign drafts
-local-only admin/audit state
-D-004 — Contracts remain focused on custody and rules
+- `teslaCrowdfundConfig:v1`
+- browser-local campaign drafts
+- browser-local admin or audit state
 
-The contracts are responsible for:
+## D-004 - Contracts Remain Focused On Custody And Rules
 
-token custody
-contributions
-refunds
-milestone claims
+The contracts are responsible for token custody, contributions, refunds, milestone claims, campaign deadlines, and campaign creation events.
 
-They are not responsible for:
+They are not responsible for moderation, verification, media storage, creator workflow state, admin workflow, or platform copy.
 
-moderation
-verification
-media storage
-creator workflow state
-D-005 — Backend is mandatory for real platform mode
+## D-005 - Backend Is Mandatory For Real Platform Mode
 
-A real platform requires a backend for:
+A real platform requires a backend for wallet auth, submission records, moderation, verification state, publish records, public listing records, audit history, and eventually durable media/storage integrations.
 
-wallet auth
-submission records
-uploads
-moderation
-verification state
-indexed public listings
-D-006 — Current /admin is scaffold only
+## D-006 - Admin Is Backend-Backed But Still Alpha
 
-The current admin route is UX scaffolding only. It is not authenticated and is not production-safe.
+The admin route now works against backend moderation and audit endpoints when `NEXT_PUBLIC_BACKEND_URL` is configured. It is still alpha-only until production admin authorization, operational guardrails, and durable audit persistence are complete.
 
-D-007 — Current /campaigns/new is scaffold only
+## D-007 - Creator Flow Uses Backend Submissions With A Local Fallback
 
-The current creator flow is a local draft tool. It is not yet a real publish or submission system.
+The creator draft builder can save submissions to the backend, show backend readiness, submit for review, and publish approved campaigns through the creator wallet. Browser localStorage remains a dev fallback only.
 
-D-008 — Setup wizard is local-only
+## D-008 - Setup Wizard Is Local-Only
 
-The current setup wizard is acceptable for local experimentation, but production runtime config must come from deployment manifests, env/runtime config, and backend-controlled platform state.
+The setup wizard is acceptable for local experimentation, but production runtime config must come from deployment manifests, environment/runtime config, and backend-controlled platform state.
 
-D-009 — A metadata-aware contract path is needed
+## D-009 - Metadata-Aware Publishing Is The V1 Path
 
-The current factory accepts only description/goal/duration/milestones. A real publish flow needs a metadata-aware V2 contract/factory path.
+Approved creator publishing uses the metadata-aware factory path. Metadata URI, campaign description, goal, duration, milestone descriptions, and milestone amounts come from the approved backend submission.
 
-D-010 — Publish should remain wallet-driven in V1
+## D-010 - Publish Remains Wallet-Driven In V1
 
-Default V1 direction:
+The backend may approve submissions and record publish results, but the approved creator publishes through their own wallet. The backend does not hold private keys or custody funds.
 
-backend approves submissions
-creator publishes through their own wallet
-backend records the result
+## D-011 - Manual Verification Is Enough For V1
 
-This avoids backend signer custody unless a later decision explicitly changes that.
+Verification for V1 is a simple admin-set state with notes. It is not third-party KYC and must not be described as production identity verification.
 
-D-011 — Manual verification is enough for V1
+## D-012 - Public Listings Come From Backend Published Records
 
-Verification for V1 should be a simple admin-set state, not third-party KYC integration.
+Public listings should be served from backend published records so hidden review states are not exposed. Contract reads remain necessary for live funding, deadline, refund, and milestone state.
 
-D-012 — Public listings should move toward a backend read model
+## D-013 - File-Backed Backend Storage Is A Launch Blocker Until Hardened
 
-Direct chain reads are acceptable in the prototype stage, but the platform should move toward an indexed backend read model for public listing reliability and moderation alignment.
-EOF
+The current JSON file store is useful for alpha development but is not launch-ready. Persistence, backup, restore, migration, and data-loss warnings must be addressed before mainnet launch.

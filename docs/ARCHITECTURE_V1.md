@@ -1,189 +1,198 @@
-cat > docs/ARCHITECTURE_V1.md <<'EOF'
 # Architecture V1
 
 ## Purpose
 
-Tesla Crowdfund currently has a strong on-chain funding core and a usable frontend shell, but the platform layer is still incomplete. This document fixes the V1 architecture in writing so future work does not drift.
+TES Crowdfund has a real on-chain funding core, a file-backed alpha backend, and a Next.js alpha frontend. This document records the current V1 architecture so launch hardening work does not blur what is contract-enforced, platform-reviewed, or still alpha-only.
 
-## Current repo reality
+## Current Repo Reality
 
-### What is already real
+### Real Product Surfaces
+
 - Root Hardhat project for BSC testnet/mainnet deployment, smoke checks, and verification.
-- `CampaignFactory.sol` creates campaign contracts for a single ERC-20 token.
+- `CampaignFactory.sol` creates campaign contracts for a single ERC-20 token, including the metadata-aware create path used by approved submissions.
 - `Campaign.sol` handles contributions, refunds, milestone claims, deadline extension, and optional goal updates.
-- Frontend explorer/funding UI can read campaigns and block writes in setup mode or wrong-network mode.
-- CI/preflight/setup-mode guardrails already exist.
+- Backend submission records store readiness, moderation state, verification notes, publish records, external media references, public campaign projections, and audit entries.
+- Frontend creator, admin, and public surfaces can read backend state when `NEXT_PUBLIC_BACKEND_URL` is configured.
+- Creator publishing remains wallet-driven. The backend records confirmed publish results but does not sign transactions or custody funds.
 
-### What is still scaffold/MVP
-- Browser-local config override via `teslaCrowdfundConfig:v1`.
-- `/setup` writes config only to browser localStorage.
-- `/admin` is local-only and unauthenticated.
-- `/campaigns/new` saves drafts only in browser localStorage / JSON download.
-- Image upload is placeholder-only.
-- There is no real backend-backed submission, moderation, or publish flow yet.
+### Alpha-Only Boundaries
 
----
+- Backend persistence is file-backed JSON in `backend/data`; it is not production storage.
+- `ADMIN_TOKEN` can be optional only in local alpha mode. Production mode requires a strong token and explicit CORS origin.
+- Browser localStorage is still used for setup overrides and local draft fallback data.
+- Binary uploads are not stored by the backend. Creators add external media references only.
+- Manual verification is a V1 platform review record, not third-party KYC.
+- Public listings are served from backend published records, but the read model is still alpha file-backed rather than a production indexer.
 
-## System boundaries
+## System Boundaries
 
-## 1) On-chain responsibilities
+### 1. On-Chain Responsibilities
 
-The smart contracts are the trust layer.
+The smart contracts are the custody and rule layer.
 
-### `CampaignFactory`
-Responsible for:
-- storing the single accepted ERC-20 token address
-- deploying new campaign contracts
+`CampaignFactory` is responsible for:
+
+- storing the accepted ERC-20 token address
+- deploying campaign contracts
 - tracking deployed campaign addresses
 - emitting campaign creation events
+- accepting approved metadata fields through the metadata-aware creation path
 
-### `Campaign`
-Responsible for:
+`Campaign` is responsible for:
+
 - receiving ERC-20 contributions
 - tracking per-backer contributions
 - tracking total contributed amount
-- refunding contributors after deadline if goal is not met
+- refunding contributors after deadline when campaign rules allow it
 - allowing milestone claims only when campaign rules permit
-- holding funds inside the contract
-- enforcing campaign deadline/goal logic
+- holding funds inside the campaign contract
+- enforcing campaign deadline and goal logic
 
-### On-chain is authoritative for
+On-chain state is authoritative for:
+
 - token custody
 - contribution accounting
 - refund rules
 - milestone claim rules
 - deployed campaign existence
 
-### On-chain is **not** the place for
+On-chain state is not the place for:
+
 - identity verification
-- moderation state
-- image storage
-- long-form campaign metadata
+- moderation decisions
+- media storage
 - admin workflow
-- submission review queue
+- long-form campaign operations state
 
----
+### 2. Backend Responsibilities
 
-## 2) Backend responsibilities
+The backend is the alpha platform/control layer.
 
-The backend is the platform/control layer.
+Current backend responsibilities:
 
-V1 backend responsibilities:
-- wallet auth (nonce + signature)
-- creator identity/verification state
-- draft campaign records
-- image upload/storage
-- metadata assembly and persistence
-- moderation queue and moderation decisions
-- audit trail for admin actions
-- published campaign records
-- event indexing/read model for public listings
+- wallet nonce and signature verification
+- campaign submission records
+- metadata-aware readiness validation
+- guarded submission state transitions
+- manual verification records
+- moderation decisions and review notes
+- publish records after creator-wallet publication
+- published-only public campaign projections
+- external media reference validation
+- creator-authored campaign updates
+- audit trail for submission, review, update, and publish activity
 
-### Backend becomes the source of truth for
-- submission state (`draft`, `pending_review`, `approved`, `rejected`, `published`)
-- verification state
+Backend state is the alpha source of truth for:
+
+- submission state: `draft`, `pending_review`, `needs_changes`, `approved`, `rejected`, `published`
+- readiness state: `incomplete`, `contract-ready`
+- manual verification state
 - moderation history
-- uploaded media references
-- metadata records used for publication
-- indexed public campaign listing state
+- approved metadata and media references
+- backend public listing records
 
-### Backend must **not**
+Backend state must not:
+
 - hold user private keys
 - custody campaign funds
-- replace contract rules with server-side trust
-- become the only source of truth for balances or refunds
+- replace contract balances, refunds, or milestone rules
+- become the only evidence for on-chain publication
+- claim production durability until persistence, backup, and migration are hardened
 
----
-
-## 3) Frontend responsibilities
+### 3. Frontend Responsibilities
 
 The frontend is the user interaction layer.
 
-### Public frontend responsibilities
+Public/backer frontend responsibilities:
+
 - wallet connection
-- network awareness / wrong-network blocking
+- network awareness and wrong-network blocking
 - setup/read-only mode messaging
-- public campaign explorer
-- campaign detail views
-- contribution and claim UX
+- public published campaign listing
+- campaign trust signals
+- contribution and claim UX where contract state allows it
 
-### Creator frontend responsibilities
-- draft creation/edit UI
-- upload UX
-- submit-for-review UX
-- publish-in-wallet UX after approval
-- draft status visibility
+Creator frontend responsibilities:
 
-### Admin frontend responsibilities
-- moderation queue UI
-- approval/rejection UI
-- verification controls
-- audit log visibility
+- campaign draft editing
+- backend save and submit-for-review flow
+- readiness blocker visibility
+- needs-changes and review state visibility
+- wallet-driven publish UX after approval
+- clear local fallback labeling
 
-### Frontend must **not** be the production source of truth for
-- submission records
-- moderation state
+Admin frontend responsibilities:
+
+- backend review queue
+- manual verification controls
+- approval, rejection, and needs-changes decisions
+- publish record visibility
+- backend audit log visibility
+- local alpha admin token handling
+
+Frontend state must not be production truth for:
+
+- submissions
+- moderation decisions
 - verification state
 - publish state
-- authoritative runtime config via browser localStorage
+- balances, refunds, or milestone claimability
+- production runtime config
 
----
+## Source Of Truth Policy
 
-## Source of truth policy
-
-### Production source of truth
 Production mode must use:
+
 - deployment manifests
 - environment/runtime config
-- backend submission/moderation data
+- backend platform records
 - on-chain contract state
+- explicit admin authorization
+- durable storage with backup/restore discipline
 
-### Development-only convenience
 Browser localStorage may be used for:
+
 - local setup experiments
-- local UI scaffolding
-- temporary developer convenience
+- local fallback drafts
+- developer convenience while backend services are unavailable
 
-### But localStorage must **not** be treated as production truth
-Specifically:
-- `teslaCrowdfundConfig:v1` is not production truth
-- local draft records are not production truth
-- local admin state is not production truth
+Browser localStorage must not be treated as production truth. Specifically:
 
----
+- `teslaCrowdfundConfig:v1` is not production config truth.
+- `teslaCrowdfundDrafts:v1` is not production submission truth.
+- `teslaCrowdfundAudit:v1` is not production audit truth.
 
-## Current gaps between repo and target platform
+## Current Launch Gaps
 
-1. Contract creation is description-driven, not metadata-driven.
-2. Creator flow is local draft UX, not backend-backed submission.
-3. Admin is local-only, not authenticated.
-4. Uploads are not implemented.
-5. Public explorer still leans on direct chain reads instead of a backend read model.
-6. Browser-local config can override env/runtime behavior, which is risky for production.
+1. Persistence, backup, restore, and migration are not launch-ready.
+2. Creator mutations are not fully session-authorized even though signature verification exists.
+3. Admin auth is token-based alpha discipline, not role-based production authorization.
+4. Binary uploads are not implemented; only external media references are supported.
+5. Public/backer flows need stronger refund, claimable, deadline, and risk-state copy.
+6. Observability and support diagnostics are minimal.
+7. Launch docs and rehearsal scripts need a full operator path from fresh clone to testnet rehearsal.
 
----
-
-## V1 target state
-
-A complete V1 platform should look like this:
+## V1 Target Shape
 
 ```text
 Frontend
-  ├─ public explorer
-  ├─ creator dashboard
-  ├─ admin moderation console
-  └─ publish-in-wallet flow
-        ↓
+  - public/backer listing and campaign interaction
+  - creator submission and wallet publish flow
+  - admin moderation and audit console
+  - setup/read-only and network guard messaging
+
 Backend
-  ├─ auth
-  ├─ uploads
-  ├─ submission state
-  ├─ moderation
-  ├─ verification state
-  └─ indexed read model
-        ↓
+  - wallet auth
+  - submission state and readiness
+  - moderation and manual verification
+  - publish records and public read model
+  - audit log and support diagnostics
+  - durable persistence path before launch
+
 Contracts
-  ├─ custody
-  ├─ contribution rules
-  ├─ refunds
-  └─ milestone claims
+  - custody
+  - contribution rules
+  - refunds
+  - milestone claims
+  - campaign creation events
+```

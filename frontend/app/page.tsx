@@ -333,8 +333,8 @@ export default function Home() {
             </div>
           </div>
           <div className="panel">
-            <h2>Admin scaffold</h2>
-            <p className="section-subtitle">Local-only admin surface for config, drafts, and audit notes.</p>
+            <h2>Admin review</h2>
+            <p className="section-subtitle">Backend moderation queue, manual verification, publish records, and alpha audit log.</p>
             <div style={{ marginTop: 12 }}>
               <Link className="button-link" href="/admin">
                 Open admin
