@@ -37,6 +37,15 @@ function isHttpUrl(value) {
   }
 }
 
+function isHttpOrigin(value) {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") && url.origin === value;
+  } catch {
+    return false;
+  }
+}
+
 function validateAddress(name, value) {
   if (!value) return;
   if (value.toLowerCase() === ZERO_ADDRESS) {
@@ -101,6 +110,26 @@ if (wcEnabled && !wcProjectId) {
 
 if (!wcEnabled && !wcProjectId) {
   warnings.push("WalletConnect disabled; NEXT_PUBLIC_WC_PROJECT_ID not required.");
+}
+
+const nodeEnv = process.env.NODE_ENV?.trim() || "development";
+const adminToken = process.env.ADMIN_TOKEN?.trim() || "";
+const corsOrigin = process.env.CORS_ORIGIN?.trim() || "*";
+
+if (nodeEnv === "production" && adminToken.length < 24) {
+  errors.push("Production backend requires ADMIN_TOKEN with at least 24 characters.");
+} else if (!adminToken) {
+  warnings.push("ADMIN_TOKEN is unset; admin routes are open only for local alpha use.");
+} else if (adminToken.length < 24) {
+  warnings.push("ADMIN_TOKEN is shorter than the production minimum of 24 characters.");
+}
+
+if (nodeEnv === "production" && (!corsOrigin || corsOrigin === "*")) {
+  errors.push("Production backend requires explicit CORS_ORIGIN.");
+} else if (corsOrigin === "*") {
+  warnings.push("CORS_ORIGIN is wildcard; production must pin the frontend origin.");
+} else if (!isHttpOrigin(corsOrigin)) {
+  errors.push("CORS_ORIGIN must be an http(s) origin without a path.");
 }
 
 async function checkRpcChainId() {

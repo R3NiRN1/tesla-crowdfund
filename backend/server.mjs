@@ -18,6 +18,14 @@ import {
 
 const { port: PORT, production: PRODUCTION, adminToken: ADMIN_TOKEN, corsOrigin: CORS_ORIGIN } = getBackendConfig();
 const STARTED_AT = new Date();
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_BUCKETS = new Map();
+const RATE_LIMITS = {
+  default: 120,
+  auth: 20,
+  admin: 60,
+  health: 240,
+};
 
 function configWarnings() {
   const warnings = ["File-backed persistence is for alpha operations only; configure backup/restore before launch."];
@@ -57,6 +65,56 @@ function diagnosticsSnapshot() {
     },
     recentAudit: store.auditLog.slice(0, 25),
   };
+}
+
+function headerValue(value) {
+  if (Array.isArray(value)) return value[0] ?? "";
+  return typeof value === "string" ? value : "";
+}
+
+function clientIp(req) {
+  const forwarded = headerValue(req.headers["x-forwarded-for"]).split(",")[0]?.trim();
+  return forwarded || req.socket.remoteAddress || "unknown";
+}
+
+function rateLimitGroup(pathname) {
+  if (pathname === "/health") return "health";
+  if (pathname.startsWith("/auth/")) return "auth";
+  if (pathname.startsWith("/admin/")) return "admin";
+  return "default";
+}
+
+function cleanupRateLimitBuckets(now) {
+  if (RATE_LIMIT_BUCKETS.size < 5_000) return;
+  for (const [key, bucket] of RATE_LIMIT_BUCKETS.entries()) {
+    if (bucket.resetAt <= now) RATE_LIMIT_BUCKETS.delete(key);
+  }
+}
+
+function enforceRateLimit(req, res, pathname) {
+  const now = Date.now();
+  cleanupRateLimitBuckets(now);
+  const group = rateLimitGroup(pathname);
+  const limit = RATE_LIMITS[group] ?? RATE_LIMITS.default;
+  const key = `${clientIp(req)}:${group}`;
+  const current = RATE_LIMIT_BUCKETS.get(key);
+  const bucket = !current || current.resetAt <= now
+    ? { count: 0, resetAt: now + RATE_LIMIT_WINDOW_MS }
+    : current;
+
+  bucket.count += 1;
+  RATE_LIMIT_BUCKETS.set(key, bucket);
+
+  if (bucket.count > limit) {
+    sendError(res, 429, "rate-limit-exceeded", "Too many requests; retry after the rate limit window resets.", {
+      group,
+      limit,
+      resetAt: new Date(bucket.resetAt).toISOString(),
+    });
+    return false;
+  }
+
+  return true;
 }
 
 function send(res, statusCode, payload) {
@@ -147,6 +205,8 @@ async function handler(req, res) {
 
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   const parts = url.pathname.split("/").filter(Boolean);
+
+  if (!enforceRateLimit(req, res, url.pathname)) return;
 
   if (req.method === "GET" && url.pathname === "/health") {
     const diagnostics = diagnosticsSnapshot();
