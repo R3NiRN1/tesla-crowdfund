@@ -39,6 +39,7 @@ Run from the repository root:
 ```bash
 npm ci
 npm --prefix frontend ci
+npm run launch:rehearsal
 npm run backend:check
 npm run compile
 npm run test:contracts
@@ -59,7 +60,7 @@ Testnet:
 4. Update frontend env with deployed factory/token addresses.
 5. Start backend with `NODE_ENV=production`, `ADMIN_TOKEN`, and explicit `CORS_ORIGIN`.
 6. Start frontend and verify `/health`, `/admin`, `/campaigns/new`, `/campaigns`, and `/`.
-7. Run a creator submission through draft, submit, admin review, approve, wallet publish, public listing, and backer funding confidence checks.
+7. Run `docs/LAUNCH_REHEARSAL.md` through creator submission, admin approval, wallet publish, public listing, backer contribution, and refund/claim smoke where feasible.
 
 Mainnet:
 
@@ -128,7 +129,7 @@ Contracts are immutable. Rollback applies to frontend/backend/config only:
 - [ ] `npm run preflight` passes with production env.
 - [ ] Backend `/health` reports production-ready config.
 - [ ] Admin diagnostics load with the production admin token.
-- [ ] Testnet rehearsal completed with creator, admin, and backer paths.
+- [ ] Testnet rehearsal completed using `docs/LAUNCH_REHEARSAL.md` with creator, admin, backer, publish, contribution, and refund/claim evidence.
 - [ ] Backup/restore rehearsal completed using `docs/PERSISTENCE_BACKUP.md`.
 - [ ] Mainnet deployer wallet, contract addresses, and explorer links are recorded.
 - [ ] Public copy clearly separates platform review from contract behavior.

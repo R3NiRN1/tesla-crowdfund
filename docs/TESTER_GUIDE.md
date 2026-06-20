@@ -1,6 +1,6 @@
 # TES Crowdfund Launch Tester Guide
 
-Use this guide with `docs/LAUNCH_RUNBOOK.md` for launch rehearsal. The backend submission store, audit log, wallet transactions, and contract reads are the current launch truth. Browser localStorage is only a setup/form convenience and must not be treated as production authority.
+Use this guide with `docs/LAUNCH_RUNBOOK.md` and `docs/LAUNCH_REHEARSAL.md` for launch rehearsal. The backend submission store, audit log, wallet transactions, and contract reads are the current launch truth. Browser localStorage is only a setup/form convenience and must not be treated as production authority.
 
 ## Roles
 
