@@ -59,9 +59,17 @@ type SubmissionResponse = {
   submission: BackendSubmission;
 };
 
+export type BackendStructuredError = {
+  code?: string;
+  message?: string;
+  detail?: unknown;
+  requestId?: string | null;
+  timestamp?: string;
+};
+
 type ErrorResponse = {
   code?: string;
-  error?: string;
+  error?: string | BackendStructuredError;
 };
 
 export type BackendAuditEntry = {
@@ -69,6 +77,36 @@ export type BackendAuditEntry = {
   action: string;
   detail: Record<string, unknown>;
   timestamp: string;
+};
+
+export type BackendHealthStatus = {
+  ok: boolean;
+  service: string;
+  status: string;
+  productionReady: boolean;
+  startedAt: string;
+  uptimeSeconds: number;
+  config: {
+    production: boolean;
+    corsOrigin: string;
+    adminTokenConfigured: boolean;
+    storage: string;
+  };
+  warnings: string[];
+};
+
+export type BackendDiagnostics = {
+  service: string;
+  startedAt: string;
+  uptimeSeconds: number;
+  config: BackendHealthStatus["config"];
+  warnings: string[];
+  counts: {
+    submissions: Record<BackendSubmission["status"], number>;
+    auditEvents: number;
+    authNonces: number;
+  };
+  recentAudit: BackendAuditEntry[];
 };
 
 export type BackendModerationDecision = "needs_changes" | "approved" | "rejected";
@@ -147,6 +185,20 @@ export type BackendAuthResult = {
   authenticatedAt: string;
 };
 
+function responseErrorCode(payload: ErrorResponse) {
+  if (payload.error && typeof payload.error === "object" && payload.error.code) return payload.error.code;
+  return payload.code ?? "backend-request-failed";
+}
+
+function responseErrorMessage(payload: ErrorResponse, status: number) {
+  if (typeof payload.error === "string") return payload.error;
+  if (payload.error && typeof payload.error === "object") {
+    const requestId = payload.error.requestId ? ` Request ID: ${payload.error.requestId}.` : "";
+    return `${payload.error.message ?? `Backend request failed with status ${status}.`}${requestId}`;
+  }
+  return `Backend request failed with status ${status}.`;
+}
+
 async function requestSubmission(path: string, init: RequestInit): Promise<BackendSubmission> {
   const backendUrl = getBackendUrl();
   if (!backendUrl) {
@@ -165,8 +217,8 @@ async function requestSubmission(path: string, init: RequestInit): Promise<Backe
   if (!response.ok || !payload.submission) {
     throw new BackendClientError(
       response.status,
-      payload.code ?? "backend-request-failed",
-      payload.error ?? `Backend request failed with status ${response.status}.`,
+      responseErrorCode(payload),
+      responseErrorMessage(payload, response.status),
     );
   }
 
@@ -184,8 +236,8 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
   if (!response.ok) {
     throw new BackendClientError(
       response.status,
-      payload.code ?? "backend-request-failed",
-      payload.error ?? `Backend request failed with status ${response.status}.`,
+      responseErrorCode(payload),
+      responseErrorMessage(payload, response.status),
     );
   }
   return payload;
@@ -229,6 +281,16 @@ export function submitBackendSubmission(id: string): Promise<BackendSubmission> 
   return requestSubmission(`/submissions/${encodeURIComponent(id)}/submit`, {
     method: "POST",
     body: JSON.stringify({}),
+  });
+}
+
+export function getBackendHealth(): Promise<BackendHealthStatus> {
+  return requestJson<BackendHealthStatus>("/health");
+}
+
+export function getBackendDiagnostics(adminToken: string): Promise<{ diagnostics: BackendDiagnostics; admin: { alphaBypass: boolean; note?: string } }> {
+  return requestJson<{ diagnostics: BackendDiagnostics; admin: { alphaBypass: boolean; note?: string } }>("/admin/diagnostics", {
+    headers: adminToken ? { "x-admin-token": adminToken } : {},
   });
 }
 

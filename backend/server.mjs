@@ -1,4 +1,5 @@
 import http from "node:http";
+import { randomUUID } from "node:crypto";
 import { URL } from "node:url";
 
 import { verifyWalletSignature } from "./auth.mjs";
@@ -16,6 +17,47 @@ import {
 } from "./store.mjs";
 
 const { port: PORT, production: PRODUCTION, adminToken: ADMIN_TOKEN, corsOrigin: CORS_ORIGIN } = getBackendConfig();
+const STARTED_AT = new Date();
+
+function configWarnings() {
+  const warnings = ["File-backed persistence is for alpha operations only; configure backup/restore before launch."];
+  if (!PRODUCTION) warnings.push("NODE_ENV is not production; launch guardrails may be relaxed.");
+  if (!ADMIN_TOKEN) warnings.push("ADMIN_TOKEN is unset; admin routes are open for local alpha only.");
+  if (CORS_ORIGIN === "*") warnings.push("CORS_ORIGIN allows all origins; production must pin an app origin.");
+  return warnings;
+}
+
+function submissionCounts(submissions) {
+  return submissions.reduce(
+    (counts, submission) => ({
+      ...counts,
+      [submission.status]: (counts[submission.status] ?? 0) + 1,
+    }),
+    { draft: 0, pending_review: 0, needs_changes: 0, approved: 0, rejected: 0, published: 0 },
+  );
+}
+
+function diagnosticsSnapshot() {
+  const store = readStore();
+  return {
+    service: "tesla-crowdfund-backend-alpha",
+    startedAt: STARTED_AT.toISOString(),
+    uptimeSeconds: Math.round(process.uptime()),
+    config: {
+      production: PRODUCTION,
+      corsOrigin: CORS_ORIGIN,
+      adminTokenConfigured: Boolean(ADMIN_TOKEN),
+      storage: "file-backed-json",
+    },
+    warnings: configWarnings(),
+    counts: {
+      submissions: submissionCounts(store.submissions),
+      auditEvents: store.auditLog.length,
+      authNonces: store.authNonces.length,
+    },
+    recentAudit: store.auditLog.slice(0, 25),
+  };
+}
 
 function send(res, statusCode, payload) {
   const body = JSON.stringify(payload, null, 2);
@@ -23,11 +65,25 @@ function send(res, statusCode, payload) {
     "content-type": "application/json; charset=utf-8",
     "access-control-allow-origin": CORS_ORIGIN,
     "access-control-allow-methods": "GET,POST,PATCH,OPTIONS",
-    "access-control-allow-headers": "content-type,authorization,x-admin-token",
+    "access-control-allow-headers": "content-type,authorization,x-admin-token,x-request-id",
     "cache-control": "no-store",
     "x-content-type-options": "nosniff",
+    "x-request-id": res.requestId ?? "",
   });
   res.end(`${body}\n`);
+}
+
+function sendError(res, statusCode, code, message, detail = {}) {
+  send(res, statusCode, {
+    ok: false,
+    error: {
+      code,
+      message,
+      detail,
+      requestId: res.requestId ?? null,
+      timestamp: new Date().toISOString(),
+    },
+  });
 }
 
 function readBody(req) {
@@ -53,6 +109,7 @@ function readBody(req) {
       } catch {
         const error = new Error("invalid JSON body");
         error.statusCode = 400;
+        error.code = "invalid-json-body";
         reject(error);
       }
     });
@@ -71,6 +128,7 @@ function requireAdmin(req) {
   if (req.headers["x-admin-token"] !== ADMIN_TOKEN) {
     const error = new Error("admin token required");
     error.statusCode = 401;
+    error.code = "admin-token-required";
     throw error;
   }
 
@@ -91,11 +149,23 @@ async function handler(req, res) {
   const parts = url.pathname.split("/").filter(Boolean);
 
   if (req.method === "GET" && url.pathname === "/health") {
+    const diagnostics = diagnosticsSnapshot();
     send(res, 200, {
       ok: true,
-      service: "tesla-crowdfund-backend-alpha",
-      productionReady: false,
+      service: diagnostics.service,
+      status: "ok",
+      productionReady: PRODUCTION && Boolean(ADMIN_TOKEN) && CORS_ORIGIN !== "*",
+      startedAt: diagnostics.startedAt,
+      uptimeSeconds: diagnostics.uptimeSeconds,
+      config: diagnostics.config,
+      warnings: diagnostics.warnings,
     });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/admin/diagnostics") {
+    const admin = requireAdmin(req);
+    send(res, 200, { ok: true, diagnostics: diagnosticsSnapshot(), admin });
     return;
   }
 
@@ -136,7 +206,7 @@ async function handler(req, res) {
   if (req.method === "GET" && parts[0] === "submissions" && parts.length === 2) {
     const submission = getSubmission(parts[1]);
     if (!submission) {
-      send(res, 404, { error: "submission not found" });
+      sendError(res, 404, "submission-not-found", "submission not found", { submissionId: parts[1] });
       return;
     }
     send(res, 200, { submission });
@@ -169,19 +239,19 @@ async function handler(req, res) {
     const decision = String(body.decision || "").trim();
 
     if (!["approved", "rejected", "needs_changes"].includes(decision)) {
-      send(res, 400, { error: "decision must be approved, rejected, or needs_changes" });
+      sendError(res, 400, "invalid-review-decision", "decision must be approved, rejected, or needs_changes", { decision });
       return;
     }
 
     const reviewerAddress = String(body.reviewerAddress || "").trim();
     if (!/^0x[a-fA-F0-9]{40}$/.test(reviewerAddress)) {
-      send(res, 400, { error: "valid reviewerAddress is required" });
+      sendError(res, 400, "invalid-reviewer-address", "valid reviewerAddress is required");
       return;
     }
 
     const manuallyVerified = body.manuallyVerified === true;
     if (decision === "approved" && !manuallyVerified) {
-      send(res, 422, { error: "manual verification is required before approval" });
+      sendError(res, 422, "manual-verification-required", "manual verification is required before approval");
       return;
     }
 
@@ -212,12 +282,15 @@ async function handler(req, res) {
     const current = getSubmission(parts[1]);
 
     if (!current) {
-      send(res, 404, { error: "submission not found" });
+      sendError(res, 404, "submission-not-found", "submission not found", { submissionId: parts[1] });
       return;
     }
 
     if (current.status !== "approved") {
-      send(res, 409, { error: "submission must be approved before publish record is accepted" });
+      sendError(res, 409, "submission-not-approved", "submission must be approved before publish record is accepted", {
+        submissionId: parts[1],
+        status: current.status,
+      });
       return;
     }
 
@@ -230,23 +303,23 @@ async function handler(req, res) {
     const addressPattern = /^0x[a-fA-F0-9]{40}$/;
 
     if (publisherAddress.toLowerCase() !== current.creatorAddress.toLowerCase()) {
-      send(res, 403, { error: "connected publisher must match the approved creator address" });
+      sendError(res, 403, "creator-address-mismatch", "connected publisher must match the approved creator address");
       return;
     }
     if (!/^0x[a-fA-F0-9]{64}$/.test(transactionHash)) {
-      send(res, 400, { error: "valid transactionHash is required" });
+      sendError(res, 400, "invalid-transaction-hash", "valid transactionHash is required");
       return;
     }
     if (!addressPattern.test(campaignAddress) || !addressPattern.test(factoryAddress)) {
-      send(res, 400, { error: "valid campaignAddress and factoryAddress are required" });
+      sendError(res, 400, "invalid-publish-addresses", "valid campaignAddress and factoryAddress are required");
       return;
     }
     if (!Number.isSafeInteger(chainId) || chainId <= 0) {
-      send(res, 400, { error: "valid chainId is required" });
+      sendError(res, 400, "invalid-chain-id", "valid chainId is required");
       return;
     }
     if (!metadataURI || metadataURI !== current.metadataURI) {
-      send(res, 400, { error: "metadataURI must match the approved submission" });
+      sendError(res, 400, "metadata-uri-mismatch", "metadataURI must match the approved submission");
       return;
     }
 
@@ -279,17 +352,22 @@ async function handler(req, res) {
     return;
   }
 
-  send(res, 404, { error: "not found" });
+  sendError(res, 404, "route-not-found", "not found", { method: req.method, path: url.pathname });
 }
 
 const server = http.createServer(async (req, res) => {
+  const incomingRequestId = Array.isArray(req.headers["x-request-id"]) ? req.headers["x-request-id"][0] : req.headers["x-request-id"];
+  res.requestId = incomingRequestId || randomUUID();
   try {
     await handler(req, res);
   } catch (error) {
-    send(res, error.statusCode || 500, {
-      code: error.code || "backend-error",
-      error: error.message || "internal server error",
-    });
+    sendError(
+      res,
+      error.statusCode || 500,
+      error.code || "backend-error",
+      error.message || "internal server error",
+      { method: req.method, path: req.url || "/" },
+    );
   }
 });
 

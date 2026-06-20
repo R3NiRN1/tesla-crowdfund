@@ -10,11 +10,15 @@ import SetupBanner from "@/components/SetupBanner";
 import WalletBar from "@/components/WalletBar";
 import {
   BackendClientError,
+  getBackendDiagnostics,
+  getBackendHealth,
   getBackendUrl,
   listBackendAudit,
   listBackendSubmissions,
   moderateBackendSubmission,
   type BackendAuditEntry,
+  type BackendDiagnostics,
+  type BackendHealthStatus,
   type BackendModerationDecision,
   type BackendSubmission,
 } from "@/lib/backendClient";
@@ -90,6 +94,10 @@ export default function AdminPage() {
   const backendUrl = getBackendUrl();
   const [submissions, setSubmissions] = useState<BackendSubmission[]>([]);
   const [auditLog, setAuditLog] = useState<BackendAuditEntry[]>([]);
+  const [health, setHealth] = useState<BackendHealthStatus | null>(null);
+  const [diagnostics, setDiagnostics] = useState<BackendDiagnostics | null>(null);
+  const [diagnosticsMessage, setDiagnosticsMessage] = useState<string | null>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [adminToken, setAdminToken] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [verificationNotes, setVerificationNotes] = useState<Record<string, string>>({});
@@ -107,12 +115,14 @@ export default function AdminPage() {
     setLoading(true);
     setError(null);
     try {
-      const [nextSubmissions, nextAudit] = await Promise.all([
+      const [nextSubmissions, nextAudit, nextHealth] = await Promise.all([
         listBackendSubmissions(),
         listBackendAudit(),
+        getBackendHealth(),
       ]);
       setSubmissions(nextSubmissions);
       setAuditLog(nextAudit);
+      setHealth(nextHealth);
     } catch (requestError) {
       setError(errorMessage(requestError));
     } finally {
@@ -163,6 +173,22 @@ export default function AdminPage() {
   const approvedUnpublished = queueCounts.approved;
   const pendingReviews = queueCounts.pending_review;
   const needsChanges = queueCounts.needs_changes;
+
+  const loadDiagnostics = async () => {
+    if (!backendUrl) return;
+    setDiagnosticsLoading(true);
+    setDiagnosticsMessage(null);
+    setError(null);
+    try {
+      const payload = await getBackendDiagnostics(adminToken.trim());
+      setDiagnostics(payload.diagnostics);
+      setDiagnosticsMessage(payload.admin.alphaBypass ? payload.admin.note ?? "Admin diagnostics loaded through local alpha bypass." : "Admin diagnostics loaded.");
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+    } finally {
+      setDiagnosticsLoading(false);
+    }
+  };
 
   const moderate = async (submission: BackendSubmission, decision: BackendModerationDecision) => {
     if (!address) return;
@@ -242,6 +268,63 @@ export default function AdminPage() {
           </label>
           {message && <div className="panel-success" style={{ marginTop: 14 }}>{message}</div>}
           {error && <div className="panel-danger" style={{ marginTop: 14 }}>{error}</div>}
+        </section>
+
+        <section className="panel">
+          <div className="split-row">
+            <div>
+              <h2>Backend health</h2>
+              <p className="section-subtitle">Health and diagnostics make common launch failures visible without reading server logs.</p>
+            </div>
+            <button type="button" className="button-secondary" onClick={() => void loadDiagnostics()} disabled={!backendUrl || diagnosticsLoading}>
+              {diagnosticsLoading ? "Loading diagnostics..." : "Load admin diagnostics"}
+            </button>
+          </div>
+          {health ? (
+            <>
+              <div className="detail-grid">
+                <div className="detail-item"><strong>Status</strong>{health.status}</div>
+                <div className="detail-item"><strong>Production ready</strong>{health.productionReady ? "yes" : "no"}</div>
+                <div className="detail-item"><strong>Started</strong>{formatTime(health.startedAt)}</div>
+                <div className="detail-item"><strong>Uptime</strong>{health.uptimeSeconds}s</div>
+                <div className="detail-item"><strong>Storage</strong>{health.config.storage}</div>
+                <div className="detail-item"><strong>Admin token</strong>{health.config.adminTokenConfigured ? "configured" : "not configured"}</div>
+              </div>
+              {health.warnings.length > 0 && (
+                <div className="panel-warning" style={{ marginTop: 12 }}>
+                  <strong>Environment warnings</strong>
+                  <ul style={{ marginBottom: 0 }}>
+                    {health.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                  </ul>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="empty-state" style={{ marginTop: 14 }}>Backend health has not loaded yet.</div>
+          )}
+          {diagnosticsMessage && <div className="panel-success" style={{ marginTop: 14 }}>{diagnosticsMessage}</div>}
+          {diagnostics && (
+            <div style={{ marginTop: 14 }}>
+              <div className="detail-grid">
+                <div className="detail-item"><strong>Audit events</strong>{diagnostics.counts.auditEvents}</div>
+                <div className="detail-item"><strong>Auth nonces</strong>{diagnostics.counts.authNonces}</div>
+                <div className="detail-item"><strong>Pending review</strong>{diagnostics.counts.submissions.pending_review}</div>
+                <div className="detail-item"><strong>Approved unpublished</strong>{diagnostics.counts.submissions.approved}</div>
+              </div>
+              <div className="timeline" style={{ marginTop: 12 }}>
+                <h3>Recent diagnostic audit events</h3>
+                {diagnostics.recentAudit.slice(0, 5).map((entry) => (
+                  <div className="timeline-item" key={entry.id}>
+                    <div>
+                      <strong>{entry.action}</strong>
+                      <div className="small muted">{auditSubmissionId(entry) ? `Submission ${short(auditSubmissionId(entry))}` : "No submission reference"}</div>
+                    </div>
+                    <span className="small muted">{formatTime(entry.timestamp)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="panel">
