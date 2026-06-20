@@ -115,7 +115,7 @@ Contracts are immutable. Rollback applies to frontend/backend/config only:
 
 ## 8. Known Limitations
 
-- File-backed backend persistence is alpha-only until backup/restore and migration readiness are completed.
+- File-backed backend persistence now has backup/restore tooling, but it remains alpha storage until replaced by durable production persistence.
 - Remaining dependency-audit findings are release-gated in `docs/SECURITY_THREAT_MODEL.md`.
 - In-memory backend rate limiting is an alpha guardrail; production should use edge limits too.
 - Manual verification is not third-party KYC.
@@ -129,7 +129,7 @@ Contracts are immutable. Rollback applies to frontend/backend/config only:
 - [ ] Backend `/health` reports production-ready config.
 - [ ] Admin diagnostics load with the production admin token.
 - [ ] Testnet rehearsal completed with creator, admin, and backer paths.
-- [ ] Backup/restore rehearsal completed.
+- [ ] Backup/restore rehearsal completed using `docs/PERSISTENCE_BACKUP.md`.
 - [ ] Mainnet deployer wallet, contract addresses, and explorer links are recorded.
 - [ ] Public copy clearly separates platform review from contract behavior.
 - [ ] Rollback owner and support contact are assigned.

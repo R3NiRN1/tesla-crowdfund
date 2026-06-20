@@ -61,7 +61,7 @@ function diagnosticsSnapshot() {
     counts: {
       submissions: submissionCounts(store.submissions),
       auditEvents: store.auditLog.length,
-      authNonces: store.authNonces.length,
+      authNonces: store.nonces.length,
     },
     recentAudit: store.auditLog.slice(0, 25),
   };
