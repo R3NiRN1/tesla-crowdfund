@@ -1,5 +1,7 @@
 # TES Crowdfund Alpha Tester Guide
 
+> Launch audit note: this guide still contains pre-backend local-only test paths and is scheduled for a full LAUNCH-08 refresh. For the current backend-backed platform state, also read `backend/README.md` and `docs/LAUNCH_UX_MAP.md`.
+
 This guide covers the current alpha loop:
 
 demo/read-only dashboard -> create contract-ready draft -> locally approve draft -> publish to BSC testnet through a wallet -> store local publish metadata and audit log.
@@ -35,7 +37,7 @@ Relevant browser storage keys:
 
 ### What Is Not Production-Ready
 
-- There is no backend.
+- Backend exists as file-backed alpha storage; production persistence is not ready.
 - There is no real authentication.
 - There is no production moderation.
 - There is no server persistence.
@@ -316,7 +318,7 @@ For `npm run preflight`, use the safe setup/read-only values from `.env.example`
 
 ## 9. Known Limitations
 
-- No backend.
+- File-backed alpha backend only; production persistence is not ready.
 - No real authentication.
 - No production moderation.
 - No server persistence.

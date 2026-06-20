@@ -7,7 +7,7 @@ const navItems: { href: string; label: string; key: NavKey }[] = [
   { href: "/setup", label: "Setup", key: "setup" },
   { href: "/campaigns", label: "Campaign drafts", key: "drafts" },
   { href: "/campaigns/new", label: "New draft", key: "new" },
-  { href: "/admin", label: "Admin scaffold", key: "admin" },
+  { href: "/admin", label: "Admin review", key: "admin" },
 ];
 
 export default function AlphaNavigation({ active }: { active: NavKey }) {
