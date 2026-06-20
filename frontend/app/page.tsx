@@ -33,7 +33,7 @@ type SelectedCampaign =
 type CampaignLifecycleStatus = "demo" | "active" | "goal_reached" | "refunds" | "completed" | "milestones_pending";
 
 function short(addr?: string | null) {
-  if (!addr) return "—";
+  if (!addr) return "-";
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
 
@@ -237,15 +237,21 @@ export default function Home() {
 
   const goalReached = selectedView ? selectedView.data.totalContributed >= selectedView.data.goal : false;
 
+  const configuredNetworkMode = publicConfig.chainId === 97
+    ? "configured testnet"
+    : publicConfig.chainId === 56
+    ? "configured mainnet"
+    : publicConfig.chainId
+    ? `configured chain ${publicConfig.chainId}`
+    : "configured network";
+
   const currentMode = networkGuard.isWrongNetwork
     ? "wrong network"
     : showDemoCampaigns
     ? "demo/local"
     : setupMode
     ? "setup/read-only"
-    : publicConfig.chainId === 97
-    ? "configured testnet"
-    : "configured network";
+    : configuredNetworkMode;
 
   const modeItems = [
     {
@@ -267,7 +273,13 @@ export default function Home() {
     {
       label: "configured testnet",
       active: publicConfig.isConfigured && publicConfig.chainId === 97 && !networkGuard.isWrongNetwork,
-      detail: "Reads and funding use the configured BSC testnet contracts.",
+      detail: "Testnet is for rehearsal. Wallet prompts still sign real testnet transactions, but not mainnet funds.",
+      danger: false,
+    },
+    {
+      label: "configured mainnet",
+      active: publicConfig.isConfigured && publicConfig.chainId === 56 && !networkGuard.isWrongNetwork,
+      detail: "Mainnet mode uses real contracts and assets. Verify every address, review signal, and wallet prompt before acting.",
       danger: false,
     },
     {
@@ -280,7 +292,7 @@ export default function Home() {
 
   const writeDisabledReason =
     selectedView?.kind === "demo"
-      ? "Demo/local mode uses sample campaigns that are demo only — not on-chain."
+      ? "Demo/local mode uses sample campaigns that are demo only - not on-chain."
       : setupMode
       ? "Setup required: configure RPC, factory, and token addresses before sending transactions."
       : networkGuard.blockWrites
@@ -322,8 +334,8 @@ export default function Home() {
             <p className="eyebrow">Alpha UX dashboard</p>
             <h1>TES Crowdfund</h1>
             <p>
-              Shareable demo and testnet workspace for campaigns, local drafts, and guarded contract actions.
-              Current mode: <strong>{currentMode}</strong>.
+              Explore backend-published campaigns and guarded contract actions. Wallet actions are signed by the connected user;
+              platform review does not custody funds or guarantee refunds. Current mode: <strong>{currentMode}</strong>.
             </p>
           </div>
           <div className="alpha-actions">
@@ -344,6 +356,21 @@ export default function Home() {
               <p className="small">{item.detail}</p>
             </div>
           ))}
+        </section>
+
+        <section className="trust-grid" aria-label="Public platform boundaries">
+          <div className="trust-note">
+            <strong>Platform review limit</strong>
+            <span>Backend approval means the submission passed manual platform checks. It is not KYC, insurance, or a delivery guarantee.</span>
+          </div>
+          <div className="trust-note">
+            <strong>Wallet consent</strong>
+            <span>Approvals, contributions, publishing, refunds, and claims happen only after the connected wallet signs a transaction.</span>
+          </div>
+          <div className="trust-note">
+            <strong>Public visibility</strong>
+            <span>Published campaigns expose creator wallet, metadata links, media references, contract addresses, transaction hashes, and updates.</span>
+          </div>
         </section>
 
         <section className="quick-grid" aria-label="Alpha workspace shortcuts">
@@ -392,7 +419,7 @@ export default function Home() {
                   : "Reads existing campaigns from the configured factory and keeps writes guarded by setup and network state."}
               </p>
             </div>
-            {showDemoCampaigns && <span className="badge badge-demo">demo only — not on-chain</span>}
+            {showDemoCampaigns && <span className="badge badge-demo">demo only - not on-chain</span>}
           </div>
 
           <div className="stats-grid" style={{ marginTop: 16 }}>
@@ -459,7 +486,7 @@ export default function Home() {
                         className={`campaign-list-button${item.id === selectedDemo?.id ? " active" : ""}`}
                         onClick={() => setSelectedDemoId(item.id)}
                       >
-                        <span className="badge badge-demo">demo only — not on-chain</span>
+                        <span className="badge badge-demo">demo only - not on-chain</span>
                         <div style={{ marginTop: 8, fontWeight: 800 }}>{item.title}</div>
                         <div className="small muted">{item.category}</div>
                       </button>
@@ -486,7 +513,7 @@ export default function Home() {
                     <div className="campaign-title-row">
                       <div>
                         {selectedView.kind === "demo" && (
-                          <span className="badge badge-demo">demo only — not on-chain</span>
+                          <span className="badge badge-demo">demo only - not on-chain</span>
                         )}
                         <h2 style={{ marginTop: selectedView.kind === "demo" ? 10 : 0 }}>
                           {selectedView.kind === "demo"

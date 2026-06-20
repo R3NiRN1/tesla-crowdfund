@@ -63,6 +63,12 @@ function metadataKind(uri: string) {
   return "metadata URI";
 }
 
+function chainBoundaryCopy(chainId: number) {
+  if (chainId === 97) return "Testnet mode: use rehearsal funds only and expect resets or redeploys before mainnet.";
+  if (chainId === 56) return "Mainnet mode: wallet actions use real assets. Verify addresses, links, and prompts before signing.";
+  return "Unknown network mode: inspect the chain ID and contract addresses before taking wallet action.";
+}
+
 function verificationCopy(state: PublicCampaign["creatorVerification"]) {
   if (state === "manually_verified") {
     return {
@@ -195,8 +201,16 @@ function PublishedCampaignCard({ campaign }: { campaign: PublicCampaign }) {
           <span>Publication, funding totals, deadline, refund eligibility, and milestone claims come from the campaign contract.</span>
         </div>
         <div className="trust-note">
+          <strong>{chainLabel(campaign.chainId)} mode</strong>
+          <span>{chainBoundaryCopy(campaign.chainId)}</span>
+        </div>
+        <div className="trust-note">
           <strong>Metadata proof</strong>
           <span>{metadataKind(campaign.metadataURI)} saved on the approved backend record and linked below for inspection.</span>
+        </div>
+        <div className="trust-note">
+          <strong>Public data</strong>
+          <span>Creator address, media references, metadata URI, publish transaction, contract addresses, updates, and milestones are visible after publish.</span>
         </div>
         <div className="trust-note">
           <strong>Backer next action</strong>
@@ -325,7 +339,7 @@ export default function PublishedCampaigns() {
           <p className="eyebrow">Published campaigns</p>
           <h2>Backend public listing</h2>
           <p className="section-subtitle">
-            Published records only. Cards separate platform review from contract evidence for funding, refunds, and milestones.
+            Published records only. Cards separate platform review, public campaign data, network mode, and contract evidence for funding, refunds, and milestones.
           </p>
         </div>
         <button type="button" className="button-secondary" onClick={() => void refresh()} disabled={!backendUrl || loading}>
