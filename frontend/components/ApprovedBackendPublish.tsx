@@ -10,6 +10,12 @@ import { ZERO_ADDRESS } from "@/lib/publicConfig";
 import { useNetworkGuard } from "@/lib/useNetworkGuard";
 import { usePublicConfig } from "@/lib/usePublicConfig";
 
+function chainLabel(chainId?: number | null) {
+  if (chainId === 97) return "BSC testnet";
+  if (chainId === 56) return "BSC mainnet";
+  return chainId ? `chain ${chainId}` : "not set";
+}
+
 function short(value?: string | null) {
   if (!value) return "-";
   return value.length <= 14 ? value : `${value.slice(0, 8)}...${value.slice(-6)}`;
@@ -176,12 +182,20 @@ export default function ApprovedBackendPublish({
           <strong>Wallet boundary</strong>
           <span>The backend approves and records the result, but the creator wallet signs the transaction and pays gas.</span>
         </div>
+        <div className="trust-note">
+          <strong>Creator consent</strong>
+          <span>Publishing makes the campaign address, creator wallet, metadata URI, media references, and transaction hash public.</span>
+        </div>
+        <div className="trust-note">
+          <strong>Network mode</strong>
+          <span>{publicConfig.chainId === 56 ? "Mainnet publish uses real assets and permanent public records." : "Testnet publish is a rehearsal transaction and may be redeployed before mainnet."}</span>
+        </div>
       </div>
 
       <div className="detail-grid">
         <div className="detail-item"><strong>Creator</strong>{short(submission.creatorAddress)}</div>
         <div className="detail-item"><strong>Factory</strong>{short(publicConfig.factoryAddress)}</div>
-        <div className="detail-item"><strong>Chain</strong>{publicConfig.chainId ?? "not set"}</div>
+        <div className="detail-item"><strong>Network</strong>{chainLabel(publicConfig.chainId)}</div>
         <div className="detail-item"><strong>Metadata</strong>{submission.metadataURI}</div>
       </div>
 
@@ -192,7 +206,7 @@ export default function ApprovedBackendPublish({
           disabled={disabledReasons.length > 0}
           className={disabledReasons.length > 0 ? "button-disabled" : "button-primary"}
         >
-          Publish approved campaign
+          Publish from creator wallet
         </button>
         {explorerUrl && <a href={explorerUrl} target="_blank" rel="noreferrer">View transaction</a>}
       </div>

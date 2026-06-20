@@ -401,7 +401,7 @@ export default function NewCampaignPage() {
             <p className="eyebrow">Creator submission</p>
             <h1>New draft</h1>
             <p>
-              Save a campaign draft to the backend, check contract readiness, and submit it for review.
+              Save a campaign draft to the backend, check contract readiness, and submit it for review. Backend review is separate from wallet publishing; publishing still requires the approved creator wallet to sign.
             </p>
           </div>
           <div className="alpha-actions">
@@ -417,8 +417,7 @@ export default function NewCampaignPage() {
         <SetupBanner />
 
         <div className="panel-warning">
-          Browser localStorage and JSON downloads remain dev-only fallbacks. Backend submission does not deploy or
-          publish anything on-chain.
+          Browser localStorage and JSON downloads remain dev-only fallbacks. Backend submission stores the creator wallet, campaign copy, metadata URI, media references, readiness, review history, and audit events. It does not deploy or publish anything on-chain.
         </div>
 
         <section className="panel">
@@ -715,6 +714,21 @@ export default function NewCampaignPage() {
           <div className={backendStep.className} style={{ marginTop: 14 }}>
             <strong>{backendStep.title}</strong>
             <div style={{ marginTop: 4 }}>{backendStep.detail}</div>
+          </div>
+
+          <div className="trust-grid" style={{ marginTop: 14 }}>
+            <div className="trust-note">
+              <strong>Creator consent</strong>
+              <span>Submitting for review means admins can inspect and audit the backend record. Approval does not publish; the creator wallet must sign the publish transaction later.</span>
+            </div>
+            <div className="trust-note">
+              <strong>Public visibility after publish</strong>
+              <span>Approved and published campaigns show creator wallet, metadata URI, media references, contract address, transaction hash, and updates to backers.</span>
+            </div>
+            <div className="trust-note">
+              <strong>Contract boundary</strong>
+              <span>Refunds, contributions, and milestone claims are controlled by campaign contracts, not by backend review notes.</span>
+            </div>
           </div>
 
           {!backendUrl && (

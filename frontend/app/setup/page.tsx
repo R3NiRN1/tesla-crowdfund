@@ -201,8 +201,7 @@ export default function SetupPage() {
       <AlphaNavigation active="setup" />
 
       <div className="panel-warning">
-        Setup values are stored in this browser. Until RPC, factory, and token are configured, the app stays in
-        setup/read-only mode and shows local demo campaigns.
+        Setup values are stored in this browser for UI configuration only. They do not deploy contracts, approve campaigns, or authorize wallet transactions. Testnet mode is for rehearsal; mainnet mode uses real contracts and assets.
       </div>
 
       <div style={{ marginTop: 24, display: "grid", gap: 16 }}>
@@ -242,7 +241,10 @@ export default function SetupPage() {
                     }))
                   }
                 />
-                BSC Testnet (97)
+                <span>
+                  BSC Testnet (97)
+                  <span style={{ display: "block", color: "#4b5563", fontSize: 12 }}>Rehearsal network for deploy, publish, contribution, refund, and claim smoke tests.</span>
+                </span>
               </label>
               <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <input
@@ -257,7 +259,10 @@ export default function SetupPage() {
                     }))
                   }
                 />
-                BSC Mainnet (56)
+                <span>
+                  BSC Mainnet (56)
+                  <span style={{ display: "block", color: "#4b5563", fontSize: 12 }}>Real assets and permanent public contract records. Use only after launch rehearsal passes.</span>
+                </span>
               </label>
             </div>
             {mainnetWarning && (
@@ -272,7 +277,7 @@ export default function SetupPage() {
                   fontSize: 13,
                 }}
               >
-                Mainnet mode: real funds are at stake. Double-check RPC + contract addresses before saving.
+                Mainnet mode: real funds and public contract records are at stake. Double-check RPC, factory, token, explorer links, and wallet prompts before saving.
               </div>
             )}
           </section>
@@ -370,7 +375,7 @@ export default function SetupPage() {
             {zeroAddressWarnings.length > 0 && (
               <div style={{ marginTop: 12, color: "#9a3412", fontSize: 13 }}>
                 {zeroAddressWarnings.map((warning) => (
-                  <div key={warning}>⚠️ {warning}</div>
+                  <div key={warning}>Warning: {warning}</div>
                 ))}
               </div>
             )}
@@ -410,12 +415,12 @@ export default function SetupPage() {
             <h2 style={{ marginTop: 0 }}>Review + Save</h2>
             <div style={{ display: "grid", gap: 8, fontSize: 14 }}>
               <div>Chain ID: {state.chainId}</div>
-              <div>RPC: {state.rpcUrl || "—"}</div>
-              <div>Explorer: {state.bscscanBase || "—"}</div>
-              <div>Factory: {state.factoryAddress || "—"}</div>
-              <div>Token: {state.tokenAddress || "—"}</div>
+              <div>RPC: {state.rpcUrl || "-"}</div>
+              <div>Explorer: {state.bscscanBase || "-"}</div>
+              <div>Factory: {state.factoryAddress || "-"}</div>
+              <div>Token: {state.tokenAddress || "-"}</div>
               <div>WalletConnect: {state.wcEnabled ? "Enabled" : "Disabled"}</div>
-              {state.wcEnabled && <div>WC Project ID: {state.wcProjectId || "—"}</div>}
+              {state.wcEnabled && <div>WC Project ID: {state.wcProjectId || "-"}</div>}
             </div>
 
             <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #e5e7eb" }}>
@@ -451,6 +456,10 @@ export default function SetupPage() {
                 Copy env snippet
               </button>
               {copyStatus && <div style={{ marginTop: 6, fontSize: 12, color: "#2563eb" }}>{copyStatus}</div>}
+            </div>
+
+            <div className="panel-warning" style={{ marginTop: 16 }}>
+              Saving this configuration changes browser UI settings only. It does not consent to publishing, funding, refunds, claims, or admin review.
             </div>
 
             <button

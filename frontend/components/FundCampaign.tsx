@@ -244,8 +244,8 @@ export default function FundCampaign({
         </div>
       </div>
       <div style={{ marginTop: 8, fontSize: 13, color: "#4b5563", lineHeight: 1.45 }}>
-        Step 1 approves token allowance for this campaign contract. Step 2 sends your contribution transaction from
-        your wallet. The platform cannot reverse contract transactions.
+        Step 1 asks your wallet to approve token allowance for this campaign contract. Step 2 asks your wallet to send
+        the contribution. Refund eligibility and milestone claims follow the campaign contract; the platform cannot reverse signed transactions.
       </div>
 
       <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
