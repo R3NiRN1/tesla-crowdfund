@@ -20,6 +20,12 @@ const {
 const { READINESS, validateSubmission } = await import("./validation.mjs");
 const { verifyWalletSignature } = await import("./auth.mjs");
 const { getBackendConfig } = await import("./config.mjs");
+const {
+  BACKUP_SCHEMA,
+  buildBackupPayload,
+  unpackBackupPayload,
+  validateStoreSnapshot,
+} = await import("./persistence.mjs");
 const { ethers } = ethersPackage;
 
 const validPayload = {
@@ -242,6 +248,31 @@ try {
   const store = readStore();
   assert.equal(store.submissions.length, 2);
   assert.ok(store.auditLog.length >= 10);
+
+  const snapshot = validateStoreSnapshot(store);
+  assert.equal(snapshot.ok, true);
+  assert.equal(snapshot.summary.submissions, 2);
+  assert.equal(snapshot.summary.published, 1);
+  assert.equal(snapshot.summary.publishRecords, 1);
+  assert.equal(snapshot.summary.mediaReferences, 2);
+
+  const backup = buildBackupPayload(store, {
+    sourceFile: tempDb,
+    config: {
+      nodeEnv: "test",
+      backendDbConfigured: true,
+      corsOrigin: "http://localhost:3000",
+      adminTokenConfigured: false,
+    },
+  });
+  assert.equal(backup.schema, BACKUP_SCHEMA);
+  assert.equal(backup.summary.auditEvents, store.auditLog.length);
+  assert.equal(backup.config.adminTokenConfigured, false);
+
+  const restored = unpackBackupPayload(backup);
+  assert.equal(restored.ok, true);
+  assert.deepEqual(restored.store.submissions, store.submissions);
+  assert.deepEqual(restored.store.auditLog, store.auditLog);
   console.log("backend:check passed");
 } finally {
   fs.rmSync(tempDb, { force: true });

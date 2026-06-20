@@ -52,6 +52,7 @@ published -> terminal
 ## What is still alpha-only
 
 - Persistence is file-backed JSON in `backend/data`.
+- Backup, restore, and store validation scripts exist for launch rehearsal, but this is still not durable production storage.
 - `ADMIN_TOKEN` is optional only in local alpha mode. Production startup requires at least 24 characters.
 - Production startup also requires an explicit `CORS_ORIGIN`; wildcard CORS is rejected.
 - Admin verification is a manual V1 record, not third-party KYC.
@@ -66,8 +67,18 @@ From the repo root:
 
 ```bash
 npm run backend:check
+npm run backend:store:check
+npm run backend:backup
 npm run backend:dev
 ```
+
+Restore from a checked backup:
+
+```bash
+npm run backend:restore -- ./ops/backups/backend-store-rehearsal.json
+```
+
+See `docs/PERSISTENCE_BACKUP.md` for backup cadence, restore rehearsal, migration notes, and data-loss warnings.
 
 The server defaults to:
 
