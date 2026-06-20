@@ -167,6 +167,17 @@ export default function ApprovedBackendPublish({
         </span>
       </div>
 
+      <div className="trust-grid" style={{ marginTop: 12 }}>
+        <div className="trust-note">
+          <strong>Publish steps</strong>
+          <span>Confirm the approved creator wallet, send createCampaignWithMetadata, then wait for the backend publish record.</span>
+        </div>
+        <div className="trust-note">
+          <strong>Wallet boundary</strong>
+          <span>The backend approves and records the result, but the creator wallet signs the transaction and pays gas.</span>
+        </div>
+      </div>
+
       <div className="detail-grid">
         <div className="detail-item"><strong>Creator</strong>{short(submission.creatorAddress)}</div>
         <div className="detail-item"><strong>Factory</strong>{short(publicConfig.factoryAddress)}</div>

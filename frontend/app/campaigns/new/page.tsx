@@ -78,6 +78,91 @@ function trimMedia(media: CampaignMediaReference[]) {
   }));
 }
 
+function describeSubmissionStatus(status: BackendSubmission["status"]) {
+  return status.replace("_", " ");
+}
+
+function backendGuidance({
+  backendUrl,
+  isConnected,
+  submission,
+  hasUnsavedBackendChanges,
+}: {
+  backendUrl: string;
+  isConnected: boolean;
+  submission: BackendSubmission | null;
+  hasUnsavedBackendChanges: boolean;
+}) {
+  if (!backendUrl) {
+    return {
+      className: "panel-warning",
+      title: "Backend setup required",
+      detail: "Set NEXT_PUBLIC_BACKEND_URL before saving authoritative submissions. Local JSON remains a dev fallback only.",
+    };
+  }
+  if (!isConnected) {
+    return {
+      className: "panel-warning",
+      title: "Connect creator wallet",
+      detail: "The connected wallet becomes the creator address for backend review and must match the wallet used for approved publishing.",
+    };
+  }
+  if (!submission) {
+    return {
+      className: "panel-warning",
+      title: "Save to backend",
+      detail: "Save the draft to get backend readiness. Submit for review only after metadata, media references, and milestones are final.",
+    };
+  }
+  if (hasUnsavedBackendChanges) {
+    return {
+      className: "panel-warning",
+      title: "Save changes before review",
+      detail: "The form changed after the last backend save. Save again so reviewers see the current metadata and contract input.",
+    };
+  }
+  if (submission.readiness.state !== "contract-ready") {
+    return {
+      className: "panel-warning",
+      title: "Resolve readiness blockers",
+      detail: "Fix every backend readiness blocker, save again, and wait for the backend to return contract-ready before review.",
+    };
+  }
+  if (submission.status === "draft" || submission.status === "needs_changes") {
+    return {
+      className: "panel-success",
+      title: submission.status === "needs_changes" ? "Ready to resubmit" : "Ready for review",
+      detail: "Submit this contract-ready backend draft for admin review. Reviewers can approve, reject, or request changes.",
+    };
+  }
+  if (submission.status === "pending_review") {
+    return {
+      className: "panel-warning",
+      title: "Waiting for admin review",
+      detail: "The submission is locked while reviewers check metadata, milestones, and creator details. Watch Campaign submissions for the outcome.",
+    };
+  }
+  if (submission.status === "approved") {
+    return {
+      className: "panel-success",
+      title: "Approved for wallet publish",
+      detail: "Open Campaign submissions, connect the approved creator wallet, confirm the network, and publish through the wallet. The backend will record the confirmed transaction.",
+    };
+  }
+  if (submission.status === "published") {
+    return {
+      className: "panel-success",
+      title: "Published",
+      detail: "The backend has recorded the wallet publish transaction and public campaign address. Future edits require campaign updates, not draft edits.",
+    };
+  }
+  return {
+    className: "panel-warning",
+    title: "Rejected",
+    detail: "This backend submission is terminal. Start a new backend draft if the campaign should be reviewed again.",
+  };
+}
+
 export default function NewCampaignPage() {
   const { address, isConnected } = useAccount();
   const [draft, setDraft] = useState<DraftFormState>(emptyDraft);
@@ -285,6 +370,12 @@ export default function NewCampaignPage() {
     ["draft", "needs_changes"].includes(backendSubmission.status) &&
     backendSubmission.readiness.state === "contract-ready" &&
     !hasUnsavedBackendChanges;
+  const backendStep = backendGuidance({
+    backendUrl,
+    isConnected,
+    submission: backendSubmission,
+    hasUnsavedBackendChanges,
+  });
 
   const downloadJson = () => {
     const payload = {
@@ -401,13 +492,13 @@ export default function NewCampaignPage() {
                 onChange={(event) => setDraft((prev) => ({ ...prev, metadataURI: event.target.value }))}
                 placeholder="ipfs://... or https://..."
               />
-              <span className="small muted">Required by backend contract readiness.</span>
+              <span className="small muted">Required by backend readiness. Paste the final IPFS, Arweave, or HTTPS metadata JSON URI before review.</span>
             </label>
           </div>
 
           <div className="panel-warning" style={{ marginTop: 14 }}>
             Binary uploads are not stored by this alpha backend. Host media on IPFS, Arweave, or HTTPS storage first,
-            then add its external reference below.
+            then add its external reference below so reviewers and backers can inspect it.
           </div>
 
           <div style={{ marginTop: 14 }}>
@@ -621,6 +712,11 @@ export default function NewCampaignPage() {
             )}
           </div>
 
+          <div className={backendStep.className} style={{ marginTop: 14 }}>
+            <strong>{backendStep.title}</strong>
+            <div style={{ marginTop: 4 }}>{backendStep.detail}</div>
+          </div>
+
           {!backendUrl && (
             <div className="panel-warning" style={{ marginTop: 14 }}>
               Set NEXT_PUBLIC_BACKEND_URL to enable backend saves. The local fallback remains dev-only.
@@ -634,11 +730,17 @@ export default function NewCampaignPage() {
           {backendSubmission && (
             <div style={{ marginTop: 14 }}>
               <div className="small muted">
-                Submission {backendSubmission.id} | status: {backendSubmission.status} | checked: {backendSubmission.readiness.checkedAt}
+                Submission {backendSubmission.id} | status: {describeSubmissionStatus(backendSubmission.status)} | checked: {backendSubmission.readiness.checkedAt}
               </div>
               {hasUnsavedBackendChanges && (
                 <div className="panel-warning" style={{ marginTop: 10 }}>
                   The form changed after the last backend save. Save again before submitting for review.
+                </div>
+              )}
+              {backendSubmission.review?.note && (
+                <div className="panel-warning" style={{ marginTop: 10 }}>
+                  <strong>Reviewer note</strong>
+                  <div style={{ marginTop: 4 }}>{backendSubmission.review.note}</div>
                 </div>
               )}
               {backendSubmission.readiness.reasons.length > 0 && (

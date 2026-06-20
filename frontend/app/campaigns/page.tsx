@@ -17,6 +17,39 @@ import {
 } from "@/lib/backendClient";
 import { buildDraftReadiness, getCampaignDrafts, type CampaignDraft } from "@/lib/localCampaigns";
 
+function statusLabel(status: BackendSubmission["status"]) {
+  return status.replace("_", " ");
+}
+
+function statusBadgeClass(status: BackendSubmission["status"]) {
+  if (status === "approved" || status === "published") return "badge-success";
+  if (status === "pending_review" || status === "needs_changes") return "badge-warning";
+  if (status === "rejected") return "badge-warning";
+  return "badge-muted";
+}
+
+function creatorNextStep(submission: BackendSubmission) {
+  if (submission.status === "published") {
+    return "Published. The backend has recorded the wallet transaction and public campaign address.";
+  }
+  if (submission.status === "approved") {
+    return "Approved. Connect the approved creator wallet, confirm network and factory settings, then publish below.";
+  }
+  if (submission.status === "pending_review") {
+    return "Pending review. Wait for an admin decision; edits are locked until the reviewer requests changes.";
+  }
+  if (submission.status === "needs_changes") {
+    return "Needs changes. Use the reviewer note, revise in the builder, save to backend, then submit again. If the form session is gone, start a corrected backend draft.";
+  }
+  if (submission.status === "rejected") {
+    return "Rejected. This record is terminal; start a new backend draft if the campaign should be resubmitted.";
+  }
+  if (submission.readiness.state !== "contract-ready") {
+    return "Draft incomplete. Fix readiness blockers in New draft, save to backend again, then submit for review.";
+  }
+  return "Draft ready. Submit it for review from New draft when metadata and media references are final.";
+}
+
 export default function CampaignsPage() {
   const { address, isConnected } = useAccount();
   const backendUrl = getBackendUrl();
@@ -54,7 +87,7 @@ export default function CampaignsPage() {
           <div>
             <p className="eyebrow">Creator campaigns</p>
             <h1>Campaign submissions</h1>
-            <p>Track backend review state and publish approved campaigns through the matching creator wallet.</p>
+            <p>Track backend review state, resolve requested changes, and publish approved campaigns through the matching creator wallet.</p>
           </div>
           <div className="alpha-actions">
             <WalletBar />
@@ -74,13 +107,16 @@ export default function CampaignsPage() {
           <div className="split-row">
             <div>
               <h2>Your backend submissions</h2>
-              <p className="section-subtitle">Only approved submissions can call the metadata-aware factory path.</p>
+              <p className="section-subtitle">Each record shows the current backend state and the next creator action.</p>
             </div>
             <button type="button" className="button-secondary" onClick={() => void refresh()} disabled={!backendUrl}>Refresh</button>
           </div>
 
           {isConnected && creatorSubmissions.length === 0 ? (
-            <div className="empty-state" style={{ marginTop: 14 }}>No backend submissions found for this wallet.</div>
+            <div className="empty-state" style={{ marginTop: 14 }}>
+              <strong>No backend submissions found for this wallet.</strong>
+              <p>Create a draft, save it to the backend, resolve readiness blockers, then submit for review.</p>
+            </div>
           ) : (
             <div className="draft-list" style={{ marginTop: 14 }}>
               {creatorSubmissions.map((submission) => (
@@ -94,12 +130,40 @@ export default function CampaignsPage() {
                       <span className={`badge ${submission.readiness.state === "contract-ready" ? "badge-success" : "badge-warning"}`}>
                         {submission.readiness.state}
                       </span>
-                      <span className={`badge ${["approved", "published"].includes(submission.status) ? "badge-success" : "badge-muted"}`}>
-                        {submission.status.replace("_", " ")}
+                      <span className={`badge ${statusBadgeClass(submission.status)}`}>
+                        {statusLabel(submission.status)}
                       </span>
                     </div>
                   </div>
-                  {submission.review?.note && <div className="small muted" style={{ marginTop: 8 }}>Review note: {submission.review.note}</div>}
+
+                  <div className="panel-warning" style={{ marginTop: 12 }}>
+                    <strong>Next step</strong>
+                    <div style={{ marginTop: 4 }}>{creatorNextStep(submission)}</div>
+                  </div>
+
+                  <div className="detail-grid">
+                    <div className="detail-item"><strong>Metadata URI</strong>{submission.metadataURI || "not set"}</div>
+                    <div className="detail-item"><strong>Readiness checked</strong>{new Date(submission.readiness.checkedAt).toLocaleString()}</div>
+                    <div className="detail-item"><strong>Review outcome</strong>{submission.review?.decision ? statusLabel(submission.review.decision) : "not reviewed"}</div>
+                    <div className="detail-item"><strong>Publish record</strong>{submission.publish ? `tx ${submission.publish.transactionHash.slice(0, 10)}...` : "not published"}</div>
+                  </div>
+
+                  {submission.readiness.reasons.length > 0 && (
+                    <div className="panel-warning" style={{ marginTop: 12 }}>
+                      <strong>Readiness blockers</strong>
+                      <ul style={{ marginBottom: 0 }}>
+                        {submission.readiness.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                      </ul>
+                    </div>
+                  )}
+
+                  {submission.review?.note && (
+                    <div className="panel-warning" style={{ marginTop: 12 }}>
+                      <strong>Reviewer note</strong>
+                      <div style={{ marginTop: 4 }}>{submission.review.note}</div>
+                    </div>
+                  )}
+
                   {(submission.status === "approved" || submission.status === "published") && (
                     <ApprovedBackendPublish submission={submission} onPublished={updatePublished} />
                   )}
