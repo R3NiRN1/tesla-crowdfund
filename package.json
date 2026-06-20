@@ -13,6 +13,7 @@
     "backend:store:check": "node scripts/backend-store.mjs check",
     "backend:backup": "node scripts/backend-store.mjs backup",
     "backend:restore": "node scripts/backend-store.mjs restore",
+    "launch:rehearsal": "node scripts/launch-rehearsal.mjs",
     "verify:mvp": "npm run backend:check && npm run compile && npm run test:contracts && npm run preflight && npm --prefix frontend run lint && npm --prefix frontend run build",
     "test:contracts": "hardhat test",
     "build:frontend": "npm --prefix frontend ci && npm --prefix frontend run build",
