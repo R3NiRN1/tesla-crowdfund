@@ -74,32 +74,42 @@ Acceptance criteria:
 
 ### P0 — Creator backend writes are not cryptographically authorized
 
-Wallet signature verification exists, but creator mutations do not consume an authenticated session or an action-bound signature. Address strings supplied in request bodies are therefore identity claims rather than proof of wallet control.
+Wallet signature verification existed, but creator mutations did not consume an authenticated session or an action-bound signature. Address strings supplied in request bodies were therefore identity claims rather than proof of wallet control.
 
-Required repair:
-- Issue a short-lived authenticated creator session after wallet signature verification, or require action-bound signed requests.
-- Bind creator-only operations to the authenticated wallet.
-- Enforce authorization on create/update/submit/publish/update operations where creator identity matters.
+**Repair applied on remediation branch:** wallet verification now issues short-lived, revocable bearer sessions bound to the signing address. Creator-only routes enforce session ownership, admin-only collections are separated, and new challenge requests no longer invalidate another challenge already being signed.
 
-Acceptance criteria:
-- A caller who knows another creator address cannot mutate that creator's data.
-- Authentication expires and is revocable/invalidatable.
-- Replay tests fail.
-- Authorization tests cover every creator mutation endpoint.
+Verified acceptance evidence:
+- unauthenticated creator creation is rejected;
+- a correctly authenticated wrong wallet cannot read, edit, submit, publish or update another creator's submission;
+- creator listing is scoped to the authenticated wallet;
+- private audit reads require admin authorization when an admin token is configured;
+- session/challenge and route-level regression checks run inside `backend:check`.
 
 ### P0 — Publication records are not independently verified on-chain
 
-The backend checks address/hash syntax and matching supplied strings, but does not verify the transaction receipt, factory event, deployed campaign, creator ownership, metadata URI, factory address, or expected chain.
+The old backend checked address/hash syntax and matching supplied strings, but did not verify the transaction receipt, factory event, deployed campaign, creator ownership, metadata URI, factory address, token, arbitrator, version or expected chain.
 
-Required repair:
-- Resolve the transaction receipt through a configured RPC.
-- Verify success, chain, approved versioned factory, factory event, campaign address, creator, token/factory relationship, and metadata URI.
-- Reject publish records that cannot be independently reconstructed from chain evidence.
+**Repair applied on remediation branch:** publication is now fail-closed and derived from independent chain evidence. The backend uses its own server-side RPC and trust anchors rather than browser configuration.
 
-Acceptance criteria:
-- Fabricated but well-formed transaction hashes are rejected.
-- A transaction from the wrong factory, creator, chain, token, contract version, or metadata URI is rejected.
-- Publication becomes a recorded observation of chain state rather than a caller assertion.
+The verifier requires and checks:
+- configured backend RPC resolves the configured chain ID;
+- transaction and receipt both exist and the receipt succeeded;
+- configured confirmation threshold has been reached;
+- transaction and receipt target the backend-approved `CampaignFactoryV2` address;
+- transaction sender matches the authenticated creator session;
+- approved factory has deployed code at the publication block;
+- factory reports `CONTRACT_VERSION == 2.0.0-alpha`;
+- factory token and arbitrator match backend-approved addresses;
+- transaction calldata is exactly `createCampaignWithMetadata` and matches the approved submission description, metadata URI, goal, duration and full milestone schedule;
+- exactly one `CampaignV2Created` event is emitted by the approved factory;
+- event creator, token, arbitrator, description, metadata URI, goal and deadline match the approved submission/configuration;
+- event deadline equals publication block timestamp plus approved duration;
+- emitted campaign address has deployed code at the publication block;
+- deployed campaign reports the expected owner, token, arbitrator, goal, deadline, description and milestone count.
+
+The stored publish record is populated from verified chain evidence. Browser-supplied campaign/factory/chain fields are not publication authority.
+
+Negative regression cases cover missing/fabricated transaction evidence, wrong chain, wrong factory, wrong creator, wrong metadata, wrong token, deployed campaign state mismatch and insufficient confirmations.
 
 ### P0 — Frontend dependency contains published security vulnerabilities
 
@@ -115,21 +125,17 @@ Acceptance criteria:
 
 ### P1 — Public backend data exposure
 
-`GET /submissions` and `GET /audit` expose draft/moderation/audit information without authorization.
-
-Required repair: classify public vs operator/creator-only data and require appropriate authorization for non-public collections.
+Creator collections now require creator sessions and operator audit/submission collections require admin authorization. Public campaign data remains separately exposed through the intended public route.
 
 ### P1 — Rate limiting trusts unvalidated forwarded IP data
 
-The backend uses the first `x-forwarded-for` value as client identity without a trusted-proxy policy.
+The backend still uses the first `x-forwarded-for` value as client identity without a trusted-proxy policy.
 
-Required repair: use the socket address by default; only trust forwarded headers when an explicit proxy deployment mode is configured.
+**Remaining repair:** use the socket address by default; only trust forwarded headers under an explicit trusted-proxy deployment policy.
 
 ### P1 — Nonce supersession permits authentication disruption
 
-Unauthenticated nonce issuance invalidates an existing unused nonce for the same wallet.
-
-Required repair: stop unsolicited nonce requests from invalidating unrelated pending challenges, or otherwise make the supersession policy resistant to trivial denial of service.
+**Repair applied:** independently issued wallet challenges remain valid until used/expired instead of unsolicited later challenge issuance invalidating an existing pending challenge.
 
 ## Contract V2 strategy
 
@@ -153,7 +159,7 @@ No mainnet V2 deployment is authorized by this brief.
 
 ### Phase 1 — Characterisation and security baseline
 1. Add tests that reproduce each confirmed contract defect or assert the V2 invariant replacing it.
-2. Add backend authorization tests that demonstrate current impersonation paths.
+2. Add backend authorization tests that demonstrate impersonation paths and prove repairs.
 3. Record current expected failures before repair.
 4. Upgrade the vulnerable frontend dependency with a regenerated lockfile.
 
@@ -168,25 +174,25 @@ No mainnet V2 deployment is authorized by this brief.
 8. Keep deployable bytecode within normal EVM size limits; never use unlimited-contract-size settings as a release workaround.
 
 ### Phase 3 — Backend identity and provenance
-1. Convert wallet verification into enforceable short-lived authorization.
-2. Protect creator mutations.
-3. Protect operator-only reads/writes.
-4. Verify publication receipts and V2 factory events over RPC.
-5. Harden proxy/rate-limit handling and nonce issuance.
+1. Convert wallet verification into enforceable short-lived authorization. **Implemented and regression-tested.**
+2. Protect creator mutations. **Implemented and route-tested.**
+3. Protect operator-only reads/writes. **Implemented for current admin collections.**
+4. Verify publication receipts and V2 factory/campaign evidence over an independently configured RPC. **Implemented and regression-tested.**
+5. Harden proxy/rate-limit handling. **Remaining.**
 
 ### Phase 4 — Integration
-1. Update frontend contract ABI/version handling.
-2. Update creator authentication UX.
-3. Update publish flow to wait for independent chain verification.
-4. Verify the actual deployed TES token behaviour before using it as escrow asset.
-5. Run complete BSC testnet happy-path and adversarial paths.
+1. Update frontend contract ABI/version handling. **V2 publish ABI/event implemented; broader V2 milestone readers/actions remain.**
+2. Update creator authentication UX. **Session flow implemented; further UX hardening may follow.**
+3. Update publish flow to wait for independent chain verification. **Implemented.**
+4. Verify the actual deployed TES token behaviour before using it as escrow asset. **Remaining.**
+5. Run complete BSC testnet happy-path and adversarial paths. **Remaining.**
 
 ### Phase 5 — Release gate
 A release candidate must not be marked mainnet-ready unless all of the following are true:
 - clean `npm ci` at root and frontend;
 - Solidity compile succeeds under deployable EVM size limits;
 - comprehensive contract tests pass;
-- backend security/authorization tests pass;
+- backend security/authorization/provenance tests pass;
 - frontend lint and production build pass;
 - current dependency advisory review passes;
 - actual TES token contract behaviour and admin powers have been reviewed;
@@ -195,6 +201,12 @@ A release candidate must not be marked mainnet-ready unless all of the following
 - testnet soak testing has exercised contribution, cap, funding failure, refunds, evidence submission, challenge, arbitration approval/rejection/timeout, milestone release, publication verification, moderation, and recovery paths;
 - deployed bytecode/source/compiler settings/version addresses are recorded;
 - mainnet deployment still requires a separate explicit human approval.
+
+## Verified checkpoint — 2026-08-30
+
+Commit `709effca9bca7a9e04e50723661d5d37667e4e71` passed the complete CI chain on PR #74, including root install, backend state/auth/session tests, independent publication verifier negative/positive tests, route-level creator authorization tests, Solidity compilation, contract tests, preflight, frontend clean install, lint and production build.
+
+This is evidence that the checked code compiles and that the specified regression tests pass. It is **not** an independent smart-contract audit, penetration test, or mainnet authorization.
 
 ## Product decisions — resolved 2026-08-30
 
