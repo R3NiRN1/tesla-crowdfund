@@ -9,7 +9,7 @@
     "doctor": "node scripts/doctor.mjs",
     "preflight": "node scripts/preflight.mjs",
     "backend:dev": "node backend/server.mjs",
-    "backend:check": "node backend/check.mjs && node backend/security-check.mjs && node backend/publication-check.mjs && node backend/route-security-check.mjs",
+    "backend:check": "node backend/check.mjs && node backend/security-check.mjs && node backend/publication-check.mjs && node backend/route-security-check.mjs && node backend/proxy-check.mjs",
     "backend:store:check": "node scripts/backend-store.mjs check",
     "backend:backup": "node scripts/backend-store.mjs backup",
     "backend:restore": "node scripts/backend-store.mjs restore",
