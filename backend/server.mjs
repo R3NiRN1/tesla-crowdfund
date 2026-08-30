@@ -10,6 +10,10 @@ import {
 } from "./auth.mjs";
 import { issueWalletChallenge } from "./challenges.mjs";
 import { getBackendConfig } from "./config.mjs";
+import {
+  getPublicationVerificationConfig,
+  verifyCampaignPublication,
+} from "./publication-verifier.mjs";
 
 import {
   addCampaignUpdate,
@@ -32,11 +36,32 @@ const RATE_LIMITS = {
   health: 240,
 };
 
+function publicationVerificationStatus() {
+  try {
+    const config = getPublicationVerificationConfig();
+    return {
+      ready: true,
+      chainId: config.chainId,
+      factoryAddress: config.factoryAddress,
+      tokenAddress: config.tokenAddress,
+      arbitratorAddress: config.arbitratorAddress,
+      confirmations: config.confirmations,
+    };
+  } catch (error) {
+    return {
+      ready: false,
+      error: error.message,
+    };
+  }
+}
+
 function configWarnings() {
   const warnings = ["File-backed persistence is for alpha operations only; configure backup/restore before launch."];
   if (!PRODUCTION) warnings.push("NODE_ENV is not production; launch guardrails may be relaxed.");
   if (!ADMIN_TOKEN) warnings.push("ADMIN_TOKEN is unset; admin routes are open for local alpha only.");
   if (CORS_ORIGIN === "*") warnings.push("CORS_ORIGIN allows all origins; production must pin an app origin.");
+  const publication = publicationVerificationStatus();
+  if (!publication.ready) warnings.push(`Independent publication verification is not ready: ${publication.error}`);
   return warnings;
 }
 
@@ -52,6 +77,7 @@ function submissionCounts(submissions) {
 
 function diagnosticsSnapshot() {
   const store = readStore();
+  const publicationVerification = publicationVerificationStatus();
   return {
     service: "tesla-crowdfund-backend-alpha",
     startedAt: STARTED_AT.toISOString(),
@@ -61,6 +87,7 @@ function diagnosticsSnapshot() {
       corsOrigin: CORS_ORIGIN,
       adminTokenConfigured: Boolean(ADMIN_TOKEN),
       storage: "file-backed-json",
+      publicationVerification,
     },
     warnings: configWarnings(),
     counts: {
@@ -258,7 +285,11 @@ async function handler(req, res) {
       ok: true,
       service: diagnostics.service,
       status: "ok",
-      productionReady: PRODUCTION && Boolean(ADMIN_TOKEN) && CORS_ORIGIN !== "*",
+      productionReady:
+        PRODUCTION
+        && Boolean(ADMIN_TOKEN)
+        && CORS_ORIGIN !== "*"
+        && diagnostics.config.publicationVerification.ready,
       startedAt: diagnostics.startedAt,
       uptimeSeconds: diagnostics.uptimeSeconds,
       config: diagnostics.config,
@@ -422,38 +453,16 @@ async function handler(req, res) {
     }
 
     const transactionHash = String(body.transactionHash || body.txHash || "").trim();
-    const campaignAddress = String(body.campaignAddress || "").trim();
-    const factoryAddress = String(body.factoryAddress || "").trim();
-    const chainId = Number(body.chainId || 0);
-    const metadataURI = String(body.metadataURI || body.metadataUri || "").trim();
-    const addressPattern = /^0x[a-fA-F0-9]{40}$/;
-
-    if (!/^0x[a-fA-F0-9]{64}$/.test(transactionHash)) {
-      sendError(res, 400, "invalid-transaction-hash", "valid transactionHash is required");
-      return;
-    }
-    if (!addressPattern.test(campaignAddress) || !addressPattern.test(factoryAddress)) {
-      sendError(res, 400, "invalid-publish-addresses", "valid campaignAddress and factoryAddress are required");
-      return;
-    }
-    if (!Number.isSafeInteger(chainId) || chainId <= 0) {
-      sendError(res, 400, "invalid-chain-id", "valid chainId is required");
-      return;
-    }
-    if (!metadataURI || metadataURI !== current.metadataURI) {
-      sendError(res, 400, "metadata-uri-mismatch", "metadataURI must match the approved submission");
-      return;
-    }
+    const verifiedPublish = await verifyCampaignPublication({
+      transactionHash,
+      submission: current,
+      creatorAddress: session.address,
+    });
 
     const submission = updateSubmissionStatus(parts[1], "published", {
       publish: {
-        transactionHash,
-        campaignAddress,
-        factoryAddress,
-        chainId,
-        metadataURI,
-        publisherAddress: session.address,
-        publishedAt: new Date().toISOString(),
+        ...verifiedPublish,
+        publishedAt: verifiedPublish.verifiedAt,
       },
     });
 
@@ -483,7 +492,7 @@ const server = http.createServer(async (req, res) => {
       error.statusCode || 500,
       error.code || "backend-error",
       error.message || "internal server error",
-      { method: req.method, path: req.url || "/" },
+      { ...(error.detail || {}), method: req.method, path: req.url || "/" },
     );
   }
 });
