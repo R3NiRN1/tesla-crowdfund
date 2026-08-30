@@ -1,0 +1,41 @@
+name: Remediation Next.js Lockfile
+
+on:
+  push:
+    branches:
+      - security/p0-remediation-2026-08
+    paths:
+      - .github/workflows/remediation-next-lock.yml
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout remediation branch
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20.19.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Regenerate patched Next.js package files
+        run: npm install --prefix frontend next@16.3.3 eslint-config-next@16.3.3 --save-exact --package-lock-only
+
+      - name: Confirm resolved Next.js version
+        run: node -e "const l=require('./frontend/package-lock.json'); if(l.packages['node_modules/next'].version!=='16.3.3') process.exit(1); console.log(l.packages['node_modules/next'].version)"
+
+      - name: Upload generated package files
+        uses: actions/upload-artifact@v4
+        with:
+          name: remediation-next-16.3.3
+          path: |
+            frontend/package.json
+            frontend/package-lock.json
+          if-no-files-found: error
+          retention-days: 1
