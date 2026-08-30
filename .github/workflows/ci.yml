@@ -42,8 +42,31 @@ jobs:
         env:
           ARBITRATOR_ADDRESS: "0x1111111111111111111111111111111111111111"
         run: |
-          npx hardhat run scripts/deploy.ts --network hardhat
-          npx hardhat run scripts/smoke.ts --network hardhat
+          set -euo pipefail
+          npx hardhat node > /tmp/tes-crowdfund-hardhat.log 2>&1 &
+          NODE_PID=$!
+          trap 'kill "$NODE_PID" 2>/dev/null || true' EXIT
+
+          READY=0
+          for attempt in $(seq 1 20); do
+            if curl --silent --fail \
+              --header 'content-type: application/json' \
+              --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' \
+              http://127.0.0.1:8545 | grep -q '"result"'; then
+              READY=1
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$READY" -ne 1 ]; then
+            cat /tmp/tes-crowdfund-hardhat.log
+            echo "Hardhat local node did not become ready." >&2
+            exit 1
+          fi
+
+          npx hardhat run scripts/deploy.ts --network localhost
+          npx hardhat run scripts/smoke.ts --network localhost
       - name: Preflight
         run: npm run preflight
       - name: Install dependencies (frontend)
