@@ -8,7 +8,7 @@ on:
       - .github/workflows/remediation-next-lock.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   generate:
@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout remediation branch
         uses: actions/checkout@v4
+        with:
+          ref: security/p0-remediation-2026-08
 
       - name: Use Node.js 20.19.0
         uses: actions/setup-node@v4
@@ -29,6 +31,15 @@ jobs:
 
       - name: Confirm resolved Next.js version
         run: node -e "const l=require('./frontend/package-lock.json'); if(l.packages['node_modules/next'].version!=='16.3.3') process.exit(1); console.log(l.packages['node_modules/next'].version)"
+
+      - name: Commit generated package files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/package.json frontend/package-lock.json
+          git diff --cached --quiet && exit 0
+          git commit -m "SECURITY: upgrade Next.js to 16.3.3"
+          git push origin HEAD:security/p0-remediation-2026-08
 
       - name: Upload generated package files
         uses: actions/upload-artifact@v4
