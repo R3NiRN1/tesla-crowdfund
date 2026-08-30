@@ -38,13 +38,17 @@ jobs:
         run: npm run compile
       - name: Test contracts
         run: npm run test:contracts
+      - name: Rehearse V2 deploy and smoke
+        env:
+          ARBITRATOR_ADDRESS: "0x1111111111111111111111111111111111111111"
+        run: |
+          npx hardhat run scripts/deploy.ts --network hardhat
+          npx hardhat run scripts/smoke.ts --network hardhat
       - name: Preflight
         run: npm run preflight
       - name: Install dependencies (frontend)
         run: npm --prefix frontend ci
-
       - name: Lint frontend
         run: npm --prefix frontend run lint
-
       - name: Build frontend
         run: npm --prefix frontend run build
