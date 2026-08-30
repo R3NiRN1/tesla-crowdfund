@@ -1,3 +1,5 @@
+import { parseTrustedProxyIps } from "./proxy.mjs";
+
 function configError(code, message) {
   const error = new Error(message);
   error.code = code;
@@ -9,6 +11,11 @@ export function getBackendConfig(env = process.env) {
   const production = env.NODE_ENV === "production";
   const adminToken = String(env.ADMIN_TOKEN || "").trim();
   const corsOrigin = String(env.CORS_ORIGIN || "*").trim();
+  const trustedProxyInput = String(env.TRUSTED_PROXY_IPS || "").trim();
+  const trustedProxyIps = parseTrustedProxyIps(trustedProxyInput);
+  const suppliedProxyEntries = trustedProxyInput
+    ? trustedProxyInput.split(",").map((item) => item.trim()).filter(Boolean)
+    : [];
 
   if (!Number.isSafeInteger(port) || port <= 0 || port > 65535) {
     throw configError("invalid-backend-port", "PORT or BACKEND_PORT must be an integer from 1 to 65535");
@@ -29,6 +36,12 @@ export function getBackendConfig(env = process.env) {
       throw configError("invalid-cors-origin", "CORS_ORIGIN must be an http(s) origin without a path");
     }
   }
+  if (trustedProxyIps.length !== suppliedProxyEntries.length) {
+    throw configError(
+      "invalid-trusted-proxy-ips",
+      "TRUSTED_PROXY_IPS must be a comma-separated list of exact IPv4 or IPv6 addresses",
+    );
+  }
 
-  return { port, production, adminToken, corsOrigin };
+  return { port, production, adminToken, corsOrigin, trustedProxyIps };
 }
