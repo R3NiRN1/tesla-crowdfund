@@ -17,15 +17,16 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
  * - immutable goal and deadline: no goal/milestone divergence or failed-campaign revival;
  * - exact inbound accounting: fee-on-transfer style tokens are rejected;
  * - sequential milestone escrow gates;
- * - optimistic contributor review with a stake-weighted challenge threshold;
+ * - full optimistic contributor review window with a stake-weighted challenge threshold;
  * - challenged milestones require an explicit arbitrator decision;
  * - non-responsive arbitration fails safe to refunds;
  * - creator inactivity also fails safe to refunds;
  * - failed/rejected milestone refunds distribute all unreleased escrow pro-rata.
  *
  * The arbitrator is deliberately constrained. It cannot release an unchallenged milestone,
- * change campaign economics, bypass milestone ordering, or prevent timeout refunds. A
- * production arbitrator should itself be a separately governed multisig/DAO mechanism.
+ * change campaign economics, bypass milestone ordering, shorten the contributor review window,
+ * or prevent timeout refunds. A production arbitrator should itself be a separately governed
+ * multisig/DAO mechanism.
  */
 contract CampaignV2 is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -129,6 +130,7 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
     error InvalidMilestones();
     error InvalidState();
     error FundingEnded();
+    error FundingStillActive();
     error GoalAlreadyMet();
     error TokenAccountingMismatch();
     error MilestoneOutOfRange();
@@ -143,6 +145,7 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
     error ArbitrationActive();
     error ArbitrationExpired();
     error MilestoneSubmissionActive();
+    error MilestoneSubmissionExpired();
     error NothingToRefund();
     error AlreadyRefunded();
     error InsufficientEscrow();
@@ -218,6 +221,10 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
         return goal - totalContributed;
     }
 
+    function challengeThresholdWeight() external view returns (uint256) {
+        return _thresholdWeight(totalContributed, CHALLENGE_THRESHOLD_BPS);
+    }
+
     /**
      * @notice Requests a contribution. If the request exceeds the remaining goal,
      *         only the remaining amount is transferred; excess stays in the wallet.
@@ -255,21 +262,17 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
         }
     }
 
-    /**
-     * @notice Permissionless transition for an underfunded campaign after its immutable deadline.
-     */
+    /** Permissionless transition for an underfunded campaign after its immutable deadline. */
     function activateFundingFailure() external {
         if (state != CampaignState.Funding) revert InvalidState();
-        if (block.timestamp <= deadline) revert FundingEnded();
+        if (block.timestamp <= deadline) revert FundingStillActive();
         if (totalContributed == goal) revert GoalAlreadyMet();
 
         emit FundingFailed(totalContributed, goal);
         _activateRefunds(keccak256("FUNDING_FAILED"));
     }
 
-    /**
-     * @notice Creator submits immutable evidence reference for the next milestone.
-     */
+    /** Creator submits immutable evidence reference for the next milestone. */
     function submitMilestoneEvidence(
         uint256 index,
         string calldata evidenceURI,
@@ -278,7 +281,7 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
         if (state != CampaignState.Milestones) revert InvalidState();
         if (index >= milestones.length) revert MilestoneOutOfRange();
         if (index != nextMilestone) revert MilestoneOutOfOrder();
-        if (block.timestamp > milestoneSubmissionDeadline) revert MilestoneSubmissionActive();
+        if (block.timestamp > milestoneSubmissionDeadline) revert MilestoneSubmissionExpired();
         if (bytes(evidenceURI).length == 0 || evidenceHash == bytes32(0)) revert InvalidEvidence();
 
         Milestone storage milestone = milestones[index];
@@ -294,8 +297,9 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @notice A contributor may cast one immutable stake-weighted signal for the active milestone.
-     *         A challenge coalition reaching 10% of total contributed stake immediately disputes it.
+     * @notice A contributor may cast one immutable stake-weighted approve/challenge signal.
+     *         Votes remain open for the entire review window even when the challenge threshold
+     *         is reached, preventing early arbitration from truncating contributor review.
      */
     function voteMilestone(uint256 index, VoteChoice choice) external {
         if (state != CampaignState.Milestones) revert InvalidState();
@@ -326,20 +330,12 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
             milestone.approvalWeight,
             milestone.challengeWeight
         );
-
-        if (
-            choice == VoteChoice.Challenge &&
-            _meetsThreshold(milestone.challengeWeight, totalContributed, CHALLENGE_THRESHOLD_BPS)
-        ) {
-            milestone.status = MilestoneStatus.Disputed;
-            milestone.disputeDeadline = block.timestamp + ARBITRATION_PERIOD;
-            emit MilestoneDisputed(index, milestone.challengeWeight, milestone.disputeDeadline);
-        }
     }
 
     /**
-     * @notice Permissionless optimistic finalisation after the full review window.
-     *         A milestone cannot reach this path if the challenge threshold was met.
+     * @notice Permissionless finalisation after the complete contributor review window.
+     *         If at least 10% of contributed stake challenged, the milestone enters arbitration;
+     *         otherwise the optimistic gate releases it.
      */
     function finalizeMilestone(uint256 index) external nonReentrant {
         if (state != CampaignState.Milestones) revert InvalidState();
@@ -350,7 +346,6 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
         if (milestone.status != MilestoneStatus.Review) revert InvalidMilestoneStatus();
         if (block.timestamp <= milestone.challengeDeadline) revert ReviewActive();
 
-        // Defensive check in case threshold rules are changed later without an immediate transition.
         if (_meetsThreshold(milestone.challengeWeight, totalContributed, CHALLENGE_THRESHOLD_BPS)) {
             milestone.status = MilestoneStatus.Disputed;
             milestone.disputeDeadline = block.timestamp + ARBITRATION_PERIOD;
@@ -362,7 +357,7 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @notice Arbitrator can only resolve a milestone that contributors have actually disputed.
+     * @notice Arbitrator can only resolve a milestone that contributors actually disputed.
      *         Rejection immediately protects all unreleased escrow for pro-rata refunds.
      */
     function resolveDispute(uint256 index, bool approve) external onlyArbitrator nonReentrant {
@@ -382,10 +377,7 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
         }
     }
 
-    /**
-     * @notice If arbitration does nothing, the creator does not win by default: unreleased
-     *         escrow becomes refundable after the arbitration timeout.
-     */
+    /** Non-responsive arbitration fails safe to refunds. */
     function expireDispute(uint256 index) external {
         if (state != CampaignState.Milestones) revert InvalidState();
         if (index >= milestones.length) revert MilestoneOutOfRange();
@@ -398,10 +390,7 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
         _activateRefunds(keccak256("ARBITRATION_TIMEOUT"));
     }
 
-    /**
-     * @notice If the creator does not submit evidence for the next milestone within the
-     *         grace period, contributors can recover the unreleased escrow.
-     */
+    /** Creator inactivity cannot freeze the unreleased escrow indefinitely. */
     function cancelForMissingMilestone() external {
         if (state != CampaignState.Milestones) revert InvalidState();
         Milestone storage milestone = milestones[nextMilestone];
@@ -413,8 +402,8 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
 
     /**
      * @notice Claims the caller's pro-rata share of the terminal refund pool.
-     *         The last claiming backer receives any integer-rounding dust so the tracked
-     *         refund pool can be completely distributed without an owner sweep.
+     *         The last claiming backer receives integer-rounding dust, so there is no
+     *         owner-controlled sweep of legitimate unreleased campaign escrow.
      */
     function refund() external nonReentrant returns (uint256 amount) {
         if (state == CampaignState.Funding) {
@@ -489,15 +478,17 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
         );
     }
 
+    function _thresholdWeight(uint256 total, uint256 thresholdBps) internal pure returns (uint256) {
+        uint256 whole = (total / BPS) * thresholdBps;
+        uint256 remainder = total % BPS;
+        return whole + (remainder * thresholdBps + BPS - 1) / BPS;
+    }
+
     function _meetsThreshold(
         uint256 weight,
         uint256 total,
         uint256 thresholdBps
     ) internal pure returns (bool) {
-        // Compute ceil(total * thresholdBps / BPS) without risking total * BPS overflow.
-        uint256 whole = (total / BPS) * thresholdBps;
-        uint256 remainder = total % BPS;
-        uint256 fractional = (remainder * thresholdBps + BPS - 1) / BPS;
-        return weight >= whole + fractional;
+        return weight >= _thresholdWeight(total, thresholdBps);
     }
 }
