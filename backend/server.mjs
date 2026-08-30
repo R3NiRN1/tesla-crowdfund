@@ -8,13 +8,13 @@ import {
   revokeWalletSession,
   verifyWalletSignature,
 } from "./auth.mjs";
+import { issueWalletChallenge } from "./challenges.mjs";
 import { getBackendConfig } from "./config.mjs";
 
 import {
   addCampaignUpdate,
   buildSubmissionMetadata,
   createSubmission,
-  issueNonce,
   listPublishedCampaigns,
   readStore,
   updateSubmission,
@@ -287,7 +287,7 @@ async function handler(req, res) {
 
   if (req.method === "POST" && url.pathname === "/auth/nonce") {
     const body = await readBody(req);
-    send(res, 201, issueNonce(body.address));
+    send(res, 201, issueWalletChallenge(body.address));
     return;
   }
 
