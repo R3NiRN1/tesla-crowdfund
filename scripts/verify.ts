@@ -4,12 +4,19 @@ import { artifacts, ethers, network } from "hardhat";
 import { assertNetworkSafety } from "./guardrails";
 
 type DeploymentFile = {
+  schema: "tes-crowdfund-deployment/v2";
   chainId: number;
   networkName: string;
   timestamp: string;
   contracts: {
-    Factory: string;
+    FactoryV2: string;
     Token: string;
+    Arbitrator: string;
+  };
+  metadata: {
+    factoryVersion: string;
+    tokenSource: "external" | "MockTES";
+    deployer: string;
   };
 };
 
@@ -23,26 +30,14 @@ const DEPLOYMENTS_DIR = path.join(__dirname, "..", "deployments");
 
 function getVerifyConfig(): VerifyConfig {
   const apiKey = process.env.BSCSCAN_API_KEY;
-  if (!apiKey) {
-    throw new Error("Missing BSCSCAN_API_KEY in environment.");
-  }
+  if (!apiKey) throw new Error("Missing BSCSCAN_API_KEY in environment.");
 
   if (network.name === "bscMainnet") {
-    return {
-      apiUrl: "https://api.bscscan.com/api",
-      browserUrl: "https://bscscan.com",
-      apiKey,
-    };
+    return { apiUrl: "https://api.bscscan.com/api", browserUrl: "https://bscscan.com", apiKey };
   }
-
   if (network.name === "bscTestnet") {
-    return {
-      apiUrl: "https://api-testnet.bscscan.com/api",
-      browserUrl: "https://testnet.bscscan.com",
-      apiKey,
-    };
+    return { apiUrl: "https://api-testnet.bscscan.com/api", browserUrl: "https://testnet.bscscan.com", apiKey };
   }
-
   throw new Error(`Unsupported network for verification: ${network.name}`);
 }
 
@@ -50,16 +45,10 @@ async function submitVerification(apiUrl: string, params: Record<string, string>
   const body = new URLSearchParams(params);
   const response = await fetch(apiUrl, {
     method: "POST",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-    },
+    headers: { "content-type": "application/x-www-form-urlencoded" },
     body,
   });
-
-  if (!response.ok) {
-    throw new Error(`BscScan verification request failed: ${response.status}`);
-  }
-
+  if (!response.ok) throw new Error(`BscScan verification request failed: ${response.status}`);
   return (await response.json()) as { status: string; message: string; result: string };
 }
 
@@ -73,25 +62,13 @@ async function pollVerificationStatus(apiUrl: string, apiKey: string, guid: stri
   for (let attempt = 0; attempt < 10; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 4000));
     const response = await fetch(statusUrl.toString());
-    if (!response.ok) {
-      throw new Error(`BscScan status check failed: ${response.status}`);
-    }
-
-    const data = (await response.json()) as {
-      status: string;
-      message: string;
-      result: string;
-    };
-
-    if (data.status === "1") {
-      return data.result;
-    }
-
+    if (!response.ok) throw new Error(`BscScan status check failed: ${response.status}`);
+    const data = (await response.json()) as { status: string; message: string; result: string };
+    if (data.status === "1") return data.result;
     if (data.result && !data.result.toLowerCase().includes("pending")) {
       throw new Error(`Verification failed: ${data.result}`);
     }
   }
-
   throw new Error("Verification status check timed out.");
 }
 
@@ -100,18 +77,14 @@ async function verifyContract(
   fullyQualifiedName: string,
   address: string,
   constructorTypes: string[],
-  constructorValues: Array<string>
+  constructorValues: string[],
 ) {
   const buildInfo = await artifacts.getBuildInfo(fullyQualifiedName);
-  if (!buildInfo) {
-    throw new Error(`Missing build info for ${fullyQualifiedName}. Run hardhat compile.`);
-  }
+  if (!buildInfo) throw new Error(`Missing build info for ${fullyQualifiedName}. Run hardhat compile.`);
 
   const optimizerEnabled = buildInfo.input.settings.optimizer?.enabled ?? false;
   const optimizerRuns = buildInfo.input.settings.optimizer?.runs ?? 200;
-  const constructorArguements = ethers.utils.defaultAbiCoder
-    .encode(constructorTypes, constructorValues)
-    .slice(2);
+  const constructorArguements = ethers.utils.defaultAbiCoder.encode(constructorTypes, constructorValues).slice(2);
 
   const response = await submitVerification(config.apiUrl, {
     module: "contract",
@@ -128,6 +101,11 @@ async function verifyContract(
   });
 
   if (response.status !== "1") {
+    const alreadyVerified = response.result?.toLowerCase().includes("already verified");
+    if (alreadyVerified) {
+      console.log(`Already verified: ${address}`);
+      return;
+    }
     throw new Error(`BscScan verification submission failed: ${response.result}`);
   }
 
@@ -136,44 +114,47 @@ async function verifyContract(
 }
 
 async function main() {
-  await assertNetworkSafety("verify");
+  const { actualChainId } = await assertNetworkSafety("verify");
   const config = getVerifyConfig();
-
   const deploymentPath = path.join(DEPLOYMENTS_DIR, `${network.name}.json`);
-  if (!fs.existsSync(deploymentPath)) {
-    throw new Error(`Deployment file not found: ${deploymentPath}`);
+  if (!fs.existsSync(deploymentPath)) throw new Error(`Deployment file not found: ${deploymentPath}`);
+
+  const deployment: DeploymentFile = JSON.parse(fs.readFileSync(deploymentPath, "utf-8"));
+  if (deployment.schema !== "tes-crowdfund-deployment/v2") {
+    throw new Error(`Refusing to verify non-V2 deployment record: ${deployment.schema || "missing schema"}.`);
+  }
+  if (deployment.chainId !== actualChainId) {
+    throw new Error(`Deployment chain ${deployment.chainId} does not match connected chain ${actualChainId}.`);
   }
 
-  const deployment: DeploymentFile = JSON.parse(
-    fs.readFileSync(deploymentPath, "utf-8")
-  );
+  const { FactoryV2: factoryAddress, Token: tokenAddress, Arbitrator: arbitratorAddress } = deployment.contracts;
 
-  const tokenAddress = deployment.contracts.Token;
-  const factoryAddress = deployment.contracts.Factory;
-
-  const tokenContract = await ethers.getContractAt("MockTES", tokenAddress);
-  const tokenOwner = process.env.TOKEN_OWNER || (await tokenContract.owner());
-
-  await verifyContract(
-    config,
-    "contracts/MockTES.sol:MockTES",
-    tokenAddress,
-    ["address"],
-    [tokenOwner]
-  );
+  if (deployment.metadata.tokenSource === "MockTES") {
+    await verifyContract(
+      config,
+      "contracts/MockTES.sol:MockTES",
+      tokenAddress,
+      ["address"],
+      [deployment.metadata.deployer],
+    );
+  } else {
+    console.log(`External token ${tokenAddress}: source verification is not claimed by this repository.`);
+  }
 
   await verifyContract(
     config,
-    "contracts/CampaignFactory.sol:CampaignFactory",
+    "contracts/CampaignFactoryV2.sol:CampaignFactoryV2",
     factoryAddress,
-    ["address"],
-    [tokenAddress]
+    ["address", "address"],
+    [tokenAddress, arbitratorAddress],
   );
 
-  console.log(`Explorer: ${config.browserUrl}/address/${factoryAddress}`);
+  console.log(`FactoryV2 explorer: ${config.browserUrl}/address/${factoryAddress}`);
+  console.log(`Token explorer: ${config.browserUrl}/address/${tokenAddress}`);
+  console.log(`Arbitrator explorer: ${config.browserUrl}/address/${arbitratorAddress}`);
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });
