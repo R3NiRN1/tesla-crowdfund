@@ -2,7 +2,12 @@ import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { URL } from "node:url";
 
-import { verifyWalletSignature } from "./auth.mjs";
+import {
+  activeWalletSessionCount,
+  getWalletSession,
+  revokeWalletSession,
+  verifyWalletSignature,
+} from "./auth.mjs";
 import { getBackendConfig } from "./config.mjs";
 
 import {
@@ -62,6 +67,7 @@ function diagnosticsSnapshot() {
       submissions: submissionCounts(store.submissions),
       auditEvents: store.auditLog.length,
       authNonces: store.nonces.length,
+      walletSessions: activeWalletSessionCount(),
     },
     recentAudit: store.auditLog.slice(0, 25),
   };
@@ -193,8 +199,46 @@ function requireAdmin(req) {
   return { alphaBypass: false };
 }
 
+function bearerToken(req) {
+  const authorization = headerValue(req.headers.authorization).trim();
+  const match = authorization.match(/^Bearer\s+([a-fA-F0-9]{64})$/);
+  return match?.[1] ?? "";
+}
+
+function requireWalletSession(req) {
+  return getWalletSession(bearerToken(req));
+}
+
 function getSubmission(id) {
   return readStore().submissions.find((submission) => submission.id === id);
+}
+
+function requireCreatorSubmission(req, id) {
+  const session = requireWalletSession(req);
+  const submission = getSubmission(id);
+  if (!submission) {
+    const error = new Error("submission not found");
+    error.statusCode = 404;
+    error.code = "submission-not-found";
+    throw error;
+  }
+  if (submission.creatorAddress.toLowerCase() !== session.address.toLowerCase()) {
+    const error = new Error("wallet session does not own this submission");
+    error.statusCode = 403;
+    error.code = "creator-session-mismatch";
+    throw error;
+  }
+  return { session, submission };
+}
+
+function requireBodyCreator(body, session, fallback = "") {
+  const claimed = String(body.creatorAddress ?? body.publisherAddress ?? fallback ?? "").trim();
+  if (claimed && claimed.toLowerCase() !== session.address.toLowerCase()) {
+    const error = new Error("creator address must match the authenticated wallet session");
+    error.statusCode = 403;
+    error.code = "creator-session-mismatch";
+    throw error;
+  }
 }
 
 async function handler(req, res) {
@@ -229,6 +273,18 @@ async function handler(req, res) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/admin/submissions") {
+    const admin = requireAdmin(req);
+    send(res, 200, { submissions: readStore().submissions, admin });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/audit") {
+    const admin = requireAdmin(req);
+    send(res, 200, { auditLog: readStore().auditLog, admin });
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/auth/nonce") {
     const body = await readBody(req);
     send(res, 201, issueNonce(body.address));
@@ -241,8 +297,11 @@ async function handler(req, res) {
     return;
   }
 
-  if (req.method === "GET" && url.pathname === "/submissions") {
-    send(res, 200, { submissions: readStore().submissions });
+  if (req.method === "POST" && url.pathname === "/auth/logout") {
+    const token = bearerToken(req);
+    const session = getWalletSession(token);
+    revokeWalletSession(token);
+    send(res, 200, { ok: true, address: session.address });
     return;
   }
 
@@ -251,29 +310,41 @@ async function handler(req, res) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/submissions") {
+    const session = requireWalletSession(req);
+    const submissions = readStore().submissions.filter(
+      (submission) => submission.creatorAddress.toLowerCase() === session.address.toLowerCase(),
+    );
+    send(res, 200, { submissions });
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/submissions") {
+    const session = requireWalletSession(req);
     const body = await readBody(req);
-    send(res, 201, { submission: createSubmission(body) });
+    requireBodyCreator(body, session);
+    send(res, 201, { submission: createSubmission({ ...body, creatorAddress: session.address }) });
     return;
   }
 
   if (req.method === "PATCH" && parts[0] === "submissions" && parts.length === 2) {
+    const { session, submission: current } = requireCreatorSubmission(req, parts[1]);
     const body = await readBody(req);
-    send(res, 200, { submission: updateSubmission(parts[1], body) });
+    requireBodyCreator(body, session, current.creatorAddress);
+    send(res, 200, {
+      submission: updateSubmission(parts[1], { ...body, creatorAddress: current.creatorAddress }),
+    });
     return;
   }
 
   if (req.method === "GET" && parts[0] === "submissions" && parts.length === 2) {
-    const submission = getSubmission(parts[1]);
-    if (!submission) {
-      sendError(res, 404, "submission-not-found", "submission not found", { submissionId: parts[1] });
-      return;
-    }
+    const { submission } = requireCreatorSubmission(req, parts[1]);
     send(res, 200, { submission });
     return;
   }
 
   if (req.method === "GET" && parts.length === 3 && parts[0] === "submissions" && parts[2] === "metadata") {
+    requireCreatorSubmission(req, parts[1]);
     send(res, 200, {
       metadata: buildSubmissionMetadata(parts[1]),
       storage: "external-reference-only",
@@ -283,6 +354,7 @@ async function handler(req, res) {
   }
 
   if (req.method === "POST" && parts.length === 3 && parts[0] === "submissions" && parts[2] === "submit") {
+    requireCreatorSubmission(req, parts[1]);
     const body = await readBody(req);
     const submission = updateSubmissionStatus(parts[1], "pending_review", {
       submittedAt: new Date().toISOString(),
@@ -316,7 +388,6 @@ async function handler(req, res) {
     }
 
     const reviewedAt = new Date().toISOString();
-
     const submission = updateSubmissionStatus(parts[2], decision, {
       review: {
         decision,
@@ -338,13 +409,9 @@ async function handler(req, res) {
   }
 
   if (req.method === "POST" && parts.length === 3 && parts[0] === "submissions" && parts[2] === "published") {
+    const { session, submission: current } = requireCreatorSubmission(req, parts[1]);
     const body = await readBody(req);
-    const current = getSubmission(parts[1]);
-
-    if (!current) {
-      sendError(res, 404, "submission-not-found", "submission not found", { submissionId: parts[1] });
-      return;
-    }
+    requireBodyCreator(body, session, current.creatorAddress);
 
     if (current.status !== "approved") {
       sendError(res, 409, "submission-not-approved", "submission must be approved before publish record is accepted", {
@@ -354,7 +421,6 @@ async function handler(req, res) {
       return;
     }
 
-    const publisherAddress = String(body.publisherAddress || "").trim();
     const transactionHash = String(body.transactionHash || body.txHash || "").trim();
     const campaignAddress = String(body.campaignAddress || "").trim();
     const factoryAddress = String(body.factoryAddress || "").trim();
@@ -362,10 +428,6 @@ async function handler(req, res) {
     const metadataURI = String(body.metadataURI || body.metadataUri || "").trim();
     const addressPattern = /^0x[a-fA-F0-9]{40}$/;
 
-    if (publisherAddress.toLowerCase() !== current.creatorAddress.toLowerCase()) {
-      sendError(res, 403, "creator-address-mismatch", "connected publisher must match the approved creator address");
-      return;
-    }
     if (!/^0x[a-fA-F0-9]{64}$/.test(transactionHash)) {
       sendError(res, 400, "invalid-transaction-hash", "valid transactionHash is required");
       return;
@@ -390,7 +452,7 @@ async function handler(req, res) {
         factoryAddress,
         chainId,
         metadataURI,
-        publisherAddress,
+        publisherAddress: session.address,
         publishedAt: new Date().toISOString(),
       },
     });
@@ -399,16 +461,11 @@ async function handler(req, res) {
     return;
   }
 
-  if (req.method === "POST" && parts.length === 4 && parts[0] === "admin" && parts[1] === "submissions" && parts[3] === "updates") {
-    const admin = requireAdmin(req);
+  if (req.method === "POST" && parts.length === 3 && parts[0] === "submissions" && parts[2] === "updates") {
+    const { session } = requireCreatorSubmission(req, parts[1]);
     const body = await readBody(req);
-    const update = addCampaignUpdate(parts[2], body);
-    send(res, 201, { update, admin });
-    return;
-  }
-
-  if (req.method === "GET" && url.pathname === "/audit") {
-    send(res, 200, { auditLog: readStore().auditLog });
+    const update = addCampaignUpdate(parts[1], { ...body, publisherAddress: session.address });
+    send(res, 201, { update });
     return;
   }
 
