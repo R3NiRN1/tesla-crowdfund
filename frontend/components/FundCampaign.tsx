@@ -1,48 +1,47 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useAccount, useReadContracts, useWriteContract } from "wagmi";
-import { useWaitForTransactionReceipt } from "wagmi";
 import { formatUnits, parseUnits, type ContractFunctionParameters } from "viem";
+import { useAccount, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 
-import { erc20Abi } from "@/lib/erc20Abi";
 import { campaignWriteAbi } from "@/lib/campaignWriteAbi";
+import { erc20Abi } from "@/lib/erc20Abi";
 
 function short(addr?: string) {
   if (!addr || typeof addr !== "string") return "-";
-  return addr.slice(0, 6) + "..." + addr.slice(-4);
+  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+}
+
+function formatToken(value: bigint, decimals: number, symbol: string) {
+  const text = formatUnits(value, decimals);
+  const numeric = Number(text);
+  return Number.isFinite(numeric) ? `${numeric.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${symbol}` : `${text} ${symbol}`;
 }
 
 export default function FundCampaign({
   token,
   campaignAddress,
+  remainingToGoal,
   onContributed,
   disabled = false,
   disabledReason,
 }: {
   token: `0x${string}`;
   campaignAddress: `0x${string}`;
+  remainingToGoal: bigint;
   onContributed?: () => void;
   disabled?: boolean;
   disabledReason?: string;
 }) {
   const { address, isConnected } = useAccount();
   const [amountText, setAmountText] = useState("10");
-
-  // If allowance reads fail (RPC/CORS/ABI/metadata issues), keep UI usable
   const [approvedOnce, setApprovedOnce] = useState(false);
-
-  const decimalsFallback = 18;
-  const symbolFallback = "TES";
+  const [lastApproveHash, setLastApproveHash] = useState<`0x${string}` | null>(null);
+  const [lastContribHash, setLastContribHash] = useState<`0x${string}` | null>(null);
 
   const readConfig = useMemo(() => {
     const contracts: ContractFunctionParameters[] = [];
-    const indices: {
-      balance: number | null;
-      allowance: number | null;
-      decimals: number;
-      symbol: number;
-    } = {
+    const indices: { balance: number | null; allowance: number | null; decimals: number; symbol: number } = {
       balance: null,
       allowance: null,
       decimals: 0,
@@ -51,309 +50,147 @@ export default function FundCampaign({
 
     if (address) {
       indices.balance = contracts.length;
-      contracts.push({
-        address: token,
-        abi: erc20Abi,
-        functionName: "balanceOf",
-        args: [address],
-      });
-
+      contracts.push({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [address] });
       indices.allowance = contracts.length;
-      contracts.push({
-        address: token,
-        abi: erc20Abi,
-        functionName: "allowance",
-        args: [address, campaignAddress],
-      });
+      contracts.push({ address: token, abi: erc20Abi, functionName: "allowance", args: [address, campaignAddress] });
     }
-
     indices.decimals = contracts.length;
-    contracts.push({
-      address: token,
-      abi: erc20Abi,
-      functionName: "decimals",
-    });
-
+    contracts.push({ address: token, abi: erc20Abi, functionName: "decimals" });
     indices.symbol = contracts.length;
-    contracts.push({
-      address: token,
-      abi: erc20Abi,
-      functionName: "symbol",
-    });
-
+    contracts.push({ address: token, abi: erc20Abi, functionName: "symbol" });
     return { contracts, indices };
-  }, [address, token, campaignAddress]);
+  }, [address, campaignAddress, token]);
 
-  const {
-    data: reads,
-    refetch,
-    isLoading: readsLoading,
-    error: readsError,
-  } = useReadContracts({
+  const { data: reads, refetch, isLoading: readsLoading, error: readsError } = useReadContracts({
     allowFailure: true,
     contracts: readConfig.contracts,
   });
 
-  const balanceResult =
-    readConfig.indices.balance !== null ? reads?.[readConfig.indices.balance]?.result : undefined;
-  const allowanceResult =
-    readConfig.indices.allowance !== null ? reads?.[readConfig.indices.allowance]?.result : undefined;
+  const balanceResult = readConfig.indices.balance !== null ? reads?.[readConfig.indices.balance]?.result : undefined;
+  const allowanceResult = readConfig.indices.allowance !== null ? reads?.[readConfig.indices.allowance]?.result : undefined;
   const decimalsResult = reads?.[readConfig.indices.decimals]?.result;
   const symbolResult = reads?.[readConfig.indices.symbol]?.result;
 
   const balance = typeof balanceResult === "bigint" ? balanceResult : undefined;
   const allowance = typeof allowanceResult === "bigint" ? allowanceResult : undefined;
-  const decimals = Number.isFinite(decimalsResult)
-    ? Number(decimalsResult)
+  const decimals = typeof decimalsResult === "number"
+    ? decimalsResult
     : typeof decimalsResult === "bigint"
-    ? Number(decimalsResult)
-    : decimalsFallback;
-  const symbol = typeof symbolResult === "string" && symbolResult.length ? symbolResult : symbolFallback;
+      ? Number(decimalsResult)
+      : 18;
+  const symbol = typeof symbolResult === "string" && symbolResult ? symbolResult : "TES";
 
-  const parsedAmount = useMemo(() => {
-    const n = Number(amountText);
-    if (!Number.isFinite(n) || n <= 0) return 0n;
+  const requestedAmount = useMemo(() => {
     try {
+      if (!amountText.trim() || Number(amountText) <= 0) return 0n;
       return parseUnits(amountText, decimals);
     } catch {
       return 0n;
     }
   }, [amountText, decimals]);
 
-  const needsApproval = useMemo(() => {
-    if (parsedAmount <= 0n) return true;
-    if (typeof allowance === "bigint") return allowance < parsedAmount;
-    // If allowance can't be read, don't brick the UI after a confirmed approve.
-    return !approvedOnce;
-  }, [allowance, parsedAmount, approvedOnce]);
+  const expectedAccepted = requestedAmount > remainingToGoal ? remainingToGoal : requestedAmount;
+  const needsApproval = expectedAccepted <= 0n
+    ? true
+    : typeof allowance === "bigint"
+      ? allowance < expectedAccepted
+      : !approvedOnce;
 
-  const { writeContract, data: txHash, error: writeError, isPending } = useWriteContract();
-
-  // NOTE: txHash can be approve OR contribute depending on last action; keep as-is.
-  const { data: receipt, isLoading: waiting } = useWaitForTransactionReceipt({
-    hash: txHash,
-  });
-
-  // if a tx confirms, refresh reads (token-side)
-  useEffect(() => {
-    if (receipt?.status === "success") {
-      refetch();
-    }
-  }, [receipt, refetch]);
-
-  const [lastApproveHash, setLastApproveHash] = useState<`0x${string}` | null>(null);
-  const [lastContribHash, setLastContribHash] = useState<`0x${string}` | null>(null);
-
-  const approveReceipt = useWaitForTransactionReceipt({
-    hash: lastApproveHash ?? undefined,
-  });
-
-  const contribReceipt = useWaitForTransactionReceipt({
-    hash: lastContribHash ?? undefined,
-  });
+  const { writeContract, error: writeError, isPending } = useWriteContract();
+  const approveReceipt = useWaitForTransactionReceipt({ hash: lastApproveHash ?? undefined });
+  const contributionReceipt = useWaitForTransactionReceipt({ hash: lastContribHash ?? undefined });
 
   useEffect(() => {
     if (approveReceipt.data?.status === "success") {
       setApprovedOnce(true);
-      refetch();
+      void refetch();
     }
-  }, [approveReceipt.data, refetch]);
+  }, [approveReceipt.data?.status, refetch]);
 
-  // Notify the parent after contribute confirms so campaign reads refresh.
   useEffect(() => {
-    if (contribReceipt.data?.status === "success") {
-      refetch(); // refresh token reads in this component
-      onContributed?.(); // refresh campaign reads in parent (Raised/goal/milestones)
+    if (contributionReceipt.data?.status === "success") {
+      void refetch();
+      onContributed?.();
     }
-  }, [contribReceipt.data, refetch, onContributed]);
+  }, [contributionReceipt.data?.status, onContributed, refetch]);
 
-  const onApprove = async () => {
-    if (disabled || !isConnected || !address) return;
-    if (parsedAmount <= 0n) return;
+  const actionDisabled = disabled || !isConnected || !address || requestedAmount <= 0n || remainingToGoal <= 0n || isPending;
 
-    try {
-      writeContract(
-        {
-          address: token,
-          abi: erc20Abi,
-          functionName: "approve",
-          args: [campaignAddress, parsedAmount],
-        },
-        {
-          onSuccess(hash) {
-            setLastApproveHash(hash as `0x${string}`);
-          },
-        }
-      );
-    } catch (e) {
-      console.error(e);
-    }
+  const approve = () => {
+    if (actionDisabled || expectedAccepted <= 0n) return;
+    writeContract(
+      { address: token, abi: erc20Abi, functionName: "approve", args: [campaignAddress, expectedAccepted] },
+      { onSuccess: (hash) => setLastApproveHash(hash) },
+    );
   };
 
-  const onContribute = async () => {
-    if (disabled || !isConnected || !address) return;
-    if (parsedAmount <= 0n) return;
-
-    try {
-      writeContract(
-        {
-          address: campaignAddress,
-          abi: campaignWriteAbi,
-          functionName: "contribute",
-          args: [parsedAmount],
-        },
-        {
-          onSuccess(hash) {
-            setLastContribHash(hash as `0x${string}`);
-          },
-        }
-      );
-    } catch (e) {
-      console.error(e);
-    }
+  const contribute = () => {
+    if (actionDisabled || needsApproval) return;
+    writeContract(
+      { address: campaignAddress, abi: campaignWriteAbi, functionName: "contribute", args: [requestedAmount] },
+      { onSuccess: (hash) => setLastContribHash(hash) },
+    );
   };
 
-  if (disabled) {
+  if (disabled || remainingToGoal <= 0n) {
     return (
-      <div
-        style={{
-          border: "1px solid #f59e0b",
-          borderRadius: 12,
-          padding: 12,
-          marginTop: 12,
-          background: "#fffbeb",
-        }}
-      >
-        <b>Funding disabled</b>
-        <div style={{ marginTop: 6, fontSize: 13, color: "#92400e" }}>
-          {disabledReason || "Setup required to enable funding actions."}
-        </div>
-        <div style={{ marginTop: 6, fontSize: 12, color: "#92400e" }}>
-          Resolve this wallet or setup state before approving token allowance or sending a contribution.
+      <div className="panel-warning" style={{ marginTop: 12 }}>
+        <strong>Funding disabled</strong>
+        <div className="small" style={{ marginTop: 4 }}>
+          {remainingToGoal <= 0n ? "Campaign hard cap has been reached." : disabledReason || "Setup or campaign state does not permit funding."}
         </div>
       </div>
     );
   }
 
   return (
-    <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12, marginTop: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-        <b>Fund this campaign</b>
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
-          Token: {short(token)} ({symbol})
+    <div className="draft-item" style={{ marginTop: 12 }}>
+      <div className="split-row">
+        <div>
+          <strong>Fund this campaign</strong>
+          <div className="small muted">Token {short(token)} ({symbol})</div>
         </div>
-      </div>
-      <div style={{ marginTop: 8, fontSize: 13, color: "#4b5563", lineHeight: 1.45 }}>
-        Step 1 asks your wallet to approve token allowance for this campaign contract. Step 2 asks your wallet to send
-        the contribution. Refund eligibility and milestone claims follow the campaign contract; the platform cannot reverse signed transactions.
+        <span className="badge badge-muted">V2 hard cap</span>
       </div>
 
-      <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <span style={{ fontSize: 13, opacity: 0.8 }}>Amount ({symbol}):</span>
-          <input
-            value={amountText}
-            onChange={(e) => setAmountText(e.target.value)}
-            style={{ width: 120, padding: "6px 8px", borderRadius: 8, border: "1px solid #ccc" }}
-            inputMode="decimal"
-          />
+      <div className="small muted" style={{ marginTop: 8 }}>
+        Remaining capacity: {formatToken(remainingToGoal, decimals, symbol)}. The contract can never accept more than this amount.
+      </div>
+
+      {requestedAmount > remainingToGoal && remainingToGoal > 0n && (
+        <div className="panel-warning" style={{ marginTop: 10 }}>
+          You requested {formatToken(requestedAmount, decimals, symbol)}, but only {formatToken(remainingToGoal, decimals, symbol)} remains. V2 will transfer only the remaining amount; the excess stays in your wallet. The approval below is capped to that remaining amount.
+        </div>
+      )}
+
+      <div className="button-row" style={{ marginTop: 10 }}>
+        <label className="form-field" style={{ minWidth: 180 }}>
+          Amount ({symbol})
+          <input value={amountText} onChange={(event) => setAmountText(event.target.value)} inputMode="decimal" />
         </label>
-
-        <button
-          onClick={onApprove}
-          disabled={!isConnected || parsedAmount <= 0n || isPending || waiting}
-          style={{
-            padding: "8px 12px",
-            borderRadius: 10,
-            border: "1px solid #111",
-            background: "#111",
-            color: "white",
-            cursor: "pointer",
-            opacity: !isConnected || parsedAmount <= 0n || isPending || waiting ? 0.6 : 1,
-          }}
-        >
-          {approveReceipt.isLoading ? "Approving..." : "1. Approve allowance"}
+        <button type="button" className={actionDisabled ? "button-disabled" : "button-primary"} disabled={actionDisabled} onClick={approve}>
+          {approveReceipt.isLoading ? "Approving..." : `1. Approve ${expectedAccepted > 0n ? formatToken(expectedAccepted, decimals, symbol) : "amount"}`}
         </button>
-
         <button
-          onClick={onContribute}
-          disabled={!isConnected || parsedAmount <= 0n || needsApproval || isPending || waiting}
-          style={{
-            padding: "8px 12px",
-            borderRadius: 10,
-            border: "1px solid #777",
-            background: "white",
-            cursor: "pointer",
-            opacity: !isConnected || parsedAmount <= 0n || needsApproval || isPending || waiting ? 0.6 : 1,
-          }}
-          title={needsApproval ? "Approve allowance first, or wait for allowance reads to refresh." : "Send contribute() transaction"}
+          type="button"
+          className={actionDisabled || needsApproval ? "button-disabled" : "button-primary"}
+          disabled={actionDisabled || needsApproval}
+          onClick={contribute}
         >
-          {contribReceipt.isLoading ? "Contributing..." : "2. Contribute"}
+          {contributionReceipt.isLoading ? "Contributing..." : "2. Contribute"}
         </button>
       </div>
 
-      <div style={{ marginTop: 10, fontSize: 12, opacity: 0.85, lineHeight: 1.6 }}>
-        <div>
-          Balance:{" "}
-          {typeof balance === "bigint"
-            ? `${Number(formatUnits(balance, decimals)).toLocaleString()} ${symbol}`
-            : "-"}
-        </div>
-        <div>
-          Allowance:{" "}
-          {typeof allowance === "bigint"
-            ? `${Number(formatUnits(allowance, decimals)).toLocaleString()} ${symbol}`
-            : "-"}
-        </div>
-
-        <div style={{ marginTop: 6, opacity: 0.8 }}>
-          Contributions are only available when your wallet is connected to the configured network.
-        </div>
-
-        {lastApproveHash && (
-          <div>
-            Approve tx: {short(lastApproveHash)}{" "}
-            {approveReceipt.data?.status === "success"
-              ? "confirmed"
-              : approveReceipt.isLoading
-              ? "pending"
-              : ""}
-          </div>
-        )}
-
-        {lastContribHash && (
-          <div>
-            Contribute tx: {short(lastContribHash)}{" "}
-            {contribReceipt.data?.status === "success"
-              ? "confirmed"
-              : contribReceipt.isLoading
-              ? "pending"
-              : ""}
-          </div>
-        )}
-
-        {(readsError || writeError) && (
-          <div style={{ marginTop: 6, color: "crimson" }}>
-            {readsError instanceof Error
-              ? readsError.message
-              : writeError instanceof Error
-              ? writeError.message
-              : readsError
-              ? String(readsError)
-              : writeError
-              ? String(writeError)
-              : "Unknown error"}
-          </div>
-        )}
-
-        {/* helpful debug */}
-        {!readsLoading && typeof allowance !== "bigint" && approvedOnce && (
-          <div style={{ marginTop: 6, color: "#b45309" }}>
-            Note: token metadata/allowance reads may be failing (RPC/CORS or token missing ERC20Metadata). Contribute is
-            still enabled after a confirmed approve.
-          </div>
-        )}
+      <div className="small muted" style={{ marginTop: 8 }}>
+        Balance: {typeof balance === "bigint" ? formatToken(balance, decimals, symbol) : readsLoading ? "loading" : "unavailable"}. Allowance: {typeof allowance === "bigint" ? formatToken(allowance, decimals, symbol) : "unavailable"}.
       </div>
+      {lastApproveHash && <div className="small muted">Approve tx: {short(lastApproveHash)} {approveReceipt.data?.status ?? (approveReceipt.isLoading ? "pending" : "")}</div>}
+      {lastContribHash && <div className="small muted">Contribution tx: {short(lastContribHash)} {contributionReceipt.data?.status ?? (contributionReceipt.isLoading ? "pending" : "")}</div>}
+      {(readsError || writeError) && (
+        <div className="panel-danger" style={{ marginTop: 10 }}>
+          {readsError instanceof Error ? readsError.message : writeError?.message}
+        </div>
+      )}
     </div>
   );
 }
