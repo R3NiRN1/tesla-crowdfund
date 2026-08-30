@@ -10,6 +10,7 @@ import {
 } from "./auth.mjs";
 import { issueWalletChallenge } from "./challenges.mjs";
 import { getBackendConfig } from "./config.mjs";
+import { resolveClientIp } from "./proxy.mjs";
 import {
   getPublicationVerificationConfig,
   verifyCampaignPublication,
@@ -25,7 +26,13 @@ import {
   updateSubmissionStatus,
 } from "./store.mjs";
 
-const { port: PORT, production: PRODUCTION, adminToken: ADMIN_TOKEN, corsOrigin: CORS_ORIGIN } = getBackendConfig();
+const {
+  port: PORT,
+  production: PRODUCTION,
+  adminToken: ADMIN_TOKEN,
+  corsOrigin: CORS_ORIGIN,
+  trustedProxyIps: TRUSTED_PROXY_IPS,
+} = getBackendConfig();
 const STARTED_AT = new Date();
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_BUCKETS = new Map();
@@ -60,6 +67,7 @@ function configWarnings() {
   if (!PRODUCTION) warnings.push("NODE_ENV is not production; launch guardrails may be relaxed.");
   if (!ADMIN_TOKEN) warnings.push("ADMIN_TOKEN is unset; admin routes are open for local alpha only.");
   if (CORS_ORIGIN === "*") warnings.push("CORS_ORIGIN allows all origins; production must pin an app origin.");
+  if (TRUSTED_PROXY_IPS.length > 0) warnings.push(`Forwarded client IPs are trusted only through ${TRUSTED_PROXY_IPS.length} explicitly configured proxy IP(s).`);
   const publication = publicationVerificationStatus();
   if (!publication.ready) warnings.push(`Independent publication verification is not ready: ${publication.error}`);
   return warnings;
@@ -86,6 +94,7 @@ function diagnosticsSnapshot() {
       production: PRODUCTION,
       corsOrigin: CORS_ORIGIN,
       adminTokenConfigured: Boolean(ADMIN_TOKEN),
+      trustedProxyCount: TRUSTED_PROXY_IPS.length,
       storage: "file-backed-json",
       publicationVerification,
     },
@@ -106,8 +115,11 @@ function headerValue(value) {
 }
 
 function clientIp(req) {
-  const forwarded = headerValue(req.headers["x-forwarded-for"]).split(",")[0]?.trim();
-  return forwarded || req.socket.remoteAddress || "unknown";
+  return resolveClientIp({
+    socketAddress: req.socket.remoteAddress,
+    forwardedFor: headerValue(req.headers["x-forwarded-for"]),
+    trustedProxyIps: TRUSTED_PROXY_IPS,
+  });
 }
 
 function rateLimitGroup(pathname) {
