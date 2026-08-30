@@ -10,7 +10,7 @@ The remediation is part of an effort to reboot the TeslaCoin/TES project. TES ha
 
 Teslastarter crowdfunding is intended as a meaningful native use for TES. The codebase must nevertheless remain reusable with another compatible standard BSC ERC-20/BEP-20 token if required.
 
-The intended application architecture is **TES-first, token-generic at the escrow layer**. TES should be the native/default Teslastarter funding token. A later application-level swap integration may allow a user holding another BSC asset to atomically obtain TES and fund a campaign, but swap/router logic must remain outside the campaign escrow contract so that escrow accounting and security assumptions stay small and auditable.
+The intended application architecture is **TES-first, token-generic at the escrow layer**. TES should be the native/default Teslastarter funding token and should gain actual utility from being the native asset used to fund Teslastarter campaigns. A later application-level swap integration may allow a user holding another BSC asset to atomically obtain TES and fund a campaign, but swap/router logic must remain outside the campaign escrow contract so that escrow accounting and security assumptions stay small and auditable.
 
 ## Confirmed decisions
 
@@ -18,7 +18,7 @@ The intended application architecture is **TES-first, token-generic at the escro
 
 Campaigns have a hard funding cap at exactly the campaign goal.
 
-If a backer requests a contribution larger than the remaining amount, V2 should accept at most the remaining amount. The preferred implementation is to transfer only the accepted amount from the wallet; the excess is never taken into escrow and therefore requires no refund transaction.
+If a backer requests a contribution larger than the remaining amount, V2 accepts at most the remaining amount. Only the accepted amount is transferred from the wallet; the excess never enters escrow and therefore cannot become trapped.
 
 Requirements:
 - `totalContributed` can never exceed `goal`;
@@ -29,13 +29,13 @@ Requirements:
 
 ### TES-first, compatible-token architecture
 
-TES is the intended native/default token of Teslastarter and the first intended production configuration.
+TES is the intended native/default token of Teslastarter and the first intended production configuration. Native TES use is part of the product purpose: Teslastarter should create genuine TES utility rather than merely display TES branding over a generic token flow.
 
-The audited Campaign V2 / Factory V2 contracts must not hard-code a particular TES address. A factory is configured with one compatible ERC-20/BEP-20 token address and every campaign created by that factory uses that token. Separate factories may therefore support other compatible BSC tokens without changing the audited campaign logic.
+The audited Campaign V2 / Factory V2 contracts do not hard-code a particular TES address. A factory is configured with one compatible ERC-20/BEP-20 token address and every campaign created by that factory uses that token. Separate factories may therefore support other compatible BSC tokens without changing the audited campaign logic.
 
 Before production use, the deployed TES contract must be inspected and its behaviour verified, including decimals, transfer semantics, fee-on-transfer behaviour, rebasing behaviour, owner/admin powers, blacklist/pause mechanics, and upgradeability if any. V2 escrow must reject or explicitly exclude token behaviours that violate exact accounting assumptions.
 
-Potential swaps from another BSC asset into TES are an application/integration concern, not part of Campaign V2. Any future swap path requires separate slippage, router-allowance, MEV, token-compatibility and transaction-atomicity review.
+Potential swaps from another BSC asset into TES are an application/integration concern, not part of Campaign V2. A future atomic user flow may swap another BSC asset into TES and immediately fund a campaign, allowing users to enter with other BSC assets while campaign escrow still receives TES. That adapter requires a separate slippage, router-allowance, MEV, token-compatibility, route-integrity and transaction-atomicity review.
 
 ### Milestones are real escrow gates
 
@@ -79,9 +79,7 @@ Requirements:
 
 ### Deadline extension policy
 
-A funding deadline cannot be extended after the first contribution or after expiry. This removes the V1 expire/refund/extend/resume ambiguity and makes the campaign lifecycle easier to reason about.
-
-An owner may only extend an unfunded campaign before its current deadline, if deadline editing is retained at all. Removing deadline mutation entirely remains acceptable if it simplifies V2 further.
+A funding deadline cannot be extended after the first contribution or after expiry. V2 currently uses an immutable funding deadline and therefore removes mutable deadline economics entirely.
 
 ### Upgrade strategy
 
@@ -95,7 +93,7 @@ No mainnet deployment is authorised until the complete system is operational and
 
 ## Implementation authority
 
-These product decisions are sufficient to begin V2 contract and test implementation on `security/p0-remediation-2026-08`.
+These product decisions are sufficient to implement V2 contract, backend and test changes on `security/p0-remediation-2026-08`.
 
 Mainnet deployment, merging to the protected release path, and any representation that the system is production-safe still require separate human approval after the documented release gates pass.
 
@@ -107,6 +105,7 @@ The following are engineering/security design choices to be evaluated and tested
 - anti-spam or challenge-bond mechanism;
 - arbitration membership/key model and timeouts;
 - recovery from a non-responsive arbitrator without giving the creator unilateral withdrawal power;
-- handling of tokens whose transfer behaviour does not preserve exact balance accounting.
+- handling of tokens whose transfer behaviour does not preserve exact balance accounting;
+- swap-router design for optional non-TES entry assets.
 
 No implementation should describe arbitrary real-world milestone verification as fully trustless unless every release condition is objectively derivable on-chain.
