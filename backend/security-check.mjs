@@ -16,14 +16,14 @@ const {
 } = await import("./auth.mjs");
 const { ethers } = ethersPackage;
 
-function expectCode(fn, code) {
-  assert.throws(fn, (error) => error.code === code);
+async function expectCode(promise, code) {
+  await assert.rejects(promise, (error) => error.code === code);
 }
 
 try {
   const wallet = ethers.Wallet.createRandom();
-  const first = issueWalletChallenge(wallet.address);
-  const second = issueWalletChallenge(wallet.address);
+  const first = await issueWalletChallenge(wallet.address);
+  const second = await issueWalletChallenge(wallet.address);
 
   assert.notEqual(first.nonce, second.nonce);
   assert.ok(Date.parse(first.expiresAt) > Date.now());
@@ -31,7 +31,7 @@ try {
 
   // A later challenge must not invalidate one already being signed.
   const firstSignature = await wallet.signMessage(first.message);
-  const firstAuth = verifyWalletSignature(wallet.address, first.nonce, firstSignature);
+  const firstAuth = await verifyWalletSignature(wallet.address, first.nonce, firstSignature);
   assert.equal(firstAuth.authenticated, true);
   assert.equal(firstAuth.address, wallet.address.toLowerCase());
   assert.match(firstAuth.sessionToken, /^[a-f0-9]{64}$/);
@@ -39,19 +39,19 @@ try {
 
   // The second independently issued challenge remains valid as well.
   const secondSignature = await wallet.signMessage(second.message);
-  const secondAuth = verifyWalletSignature(wallet.address, second.nonce, secondSignature);
+  const secondAuth = await verifyWalletSignature(wallet.address, second.nonce, secondSignature);
   assert.equal(secondAuth.authenticated, true);
   assert.notEqual(secondAuth.sessionToken, firstAuth.sessionToken);
 
-  const firstSession = getWalletSession(firstAuth.sessionToken);
+  const firstSession = await getWalletSession(firstAuth.sessionToken);
   assert.equal(firstSession.address, wallet.address.toLowerCase());
-  assert.equal(activeWalletSessionCount(), 2);
+  assert.equal(await activeWalletSessionCount(), 2);
 
-  expectCode(() => getWalletSession("not-a-session-token"), "wallet-session-required");
-  assert.equal(revokeWalletSession(firstAuth.sessionToken), true);
-  expectCode(() => getWalletSession(firstAuth.sessionToken), "wallet-session-invalid");
-  assert.equal(getWalletSession(secondAuth.sessionToken).address, wallet.address.toLowerCase());
-  assert.equal(activeWalletSessionCount(), 1);
+  await expectCode(getWalletSession("not-a-session-token"), "wallet-session-required");
+  assert.equal(await revokeWalletSession(firstAuth.sessionToken), true);
+  await expectCode(getWalletSession(firstAuth.sessionToken), "wallet-session-invalid");
+  assert.equal((await getWalletSession(secondAuth.sessionToken)).address, wallet.address.toLowerCase());
+  assert.equal(await activeWalletSessionCount(), 1);
 
   console.log("backend:security-check passed");
 } finally {

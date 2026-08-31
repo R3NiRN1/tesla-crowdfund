@@ -6,8 +6,6 @@ export type StoredConfig = {
   factoryAddress: string;
   tokenAddress: string;
   bscscanBase: string | null;
-  wcEnabled: boolean;
-  wcProjectId: string | null;
 };
 
 export function getStoredConfig(): StoredConfig | null {

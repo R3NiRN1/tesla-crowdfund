@@ -1,4 +1,5 @@
 export const campaignAbi = [
+  { type: "function", name: "CONTRACT_VERSION", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
   { type: "function", name: "description", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
   { type: "function", name: "goal", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "function", name: "deadline", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },

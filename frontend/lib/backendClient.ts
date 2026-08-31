@@ -21,14 +21,15 @@ export type BackendSubmission = {
   review?: {
     decision: "needs_changes" | "approved" | "rejected";
     note: string;
-    reviewerAddress: string;
+    reviewerOperatorId: string;
+    reviewerSubject: string;
     reviewedAt: string;
-    alphaAdminBypass: boolean;
   } | null;
   verification?: {
     state: "unverified" | "manually_verified";
     note: string;
-    reviewerAddress: string;
+    reviewerOperatorId: string;
+    reviewerSubject: string;
     verifiedAt: string | null;
   } | null;
   publish?: {
@@ -38,6 +39,13 @@ export type BackendSubmission = {
     chainId: number;
     metadataURI: string;
     publisherAddress: string;
+    tokenAddress: string;
+    arbitratorAddress: string;
+    factoryVersion: string;
+    campaignVersion: string;
+    blockNumber: number;
+    confirmations: number;
+    verifiedOnChain: boolean;
     publishedAt: string;
   } | null;
   createdAt: string;
@@ -76,6 +84,7 @@ export type BackendAuditEntry = {
   id: string;
   action: string;
   detail: Record<string, unknown>;
+  actor?: { kind: "wallet" | "operator" | "system"; id: string | null };
   timestamp: string;
 };
 
@@ -89,8 +98,9 @@ export type BackendHealthStatus = {
   config: {
     production: boolean;
     corsOrigin: string;
-    adminTokenConfigured: boolean;
     storage: string;
+    durableStorage: boolean;
+    operatorAuthConfigured: boolean;
   };
   warnings: string[];
 };
@@ -106,6 +116,7 @@ export type BackendDiagnostics = {
     auditEvents: number;
     authNonces: number;
     walletSessions?: number;
+    activeOperators?: number;
   };
   recentAudit: BackendAuditEntry[];
 };
@@ -115,9 +126,14 @@ export type BackendModerationDecision = "needs_changes" | "approved" | "rejected
 export type BackendModerationInput = {
   decision: BackendModerationDecision;
   note: string;
-  reviewerAddress: string;
   manuallyVerified: boolean;
   verificationNote: string;
+};
+
+export type BackendOperatorSession = {
+  sessionToken: string;
+  expiresAt: string;
+  operator: { id: string; subject: string; displayName: string; roles: string[] };
 };
 
 export type BackendPublishInput = {
@@ -379,16 +395,28 @@ export function getBackendHealth(): Promise<BackendHealthStatus> {
   return requestJson<BackendHealthStatus>("/health");
 }
 
-export function getBackendDiagnostics(adminToken: string): Promise<{ diagnostics: BackendDiagnostics; admin: { alphaBypass: boolean; note?: string } }> {
-  return requestJson<{ diagnostics: BackendDiagnostics; admin: { alphaBypass: boolean; note?: string } }>("/admin/diagnostics", {
-    headers: adminToken ? { "x-admin-token": adminToken } : {},
+function operatorAuthorizationHeaders(sessionToken: string): Record<string, string> {
+  return sessionToken ? { authorization: `Bearer ${sessionToken}` } : {};
+}
+
+export function authenticateBackendOperator(credential: string): Promise<BackendOperatorSession> {
+  return requestJson<BackendOperatorSession>("/operator/auth", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ credential }),
   });
 }
 
-export async function listBackendSubmissions(adminToken?: string): Promise<BackendSubmission[]> {
-  if (adminToken !== undefined) {
+export function getBackendDiagnostics(operatorSession: string): Promise<{ diagnostics: BackendDiagnostics; operator: BackendOperatorSession["operator"] }> {
+  return requestJson<{ diagnostics: BackendDiagnostics; operator: BackendOperatorSession["operator"] }>("/admin/diagnostics", {
+    headers: operatorAuthorizationHeaders(operatorSession),
+  });
+}
+
+export async function listBackendSubmissions(operatorSession?: string): Promise<BackendSubmission[]> {
+  if (operatorSession !== undefined) {
     const payload = await requestJson<{ submissions: BackendSubmission[] }>("/admin/submissions", {
-      headers: adminToken ? { "x-admin-token": adminToken } : {},
+      headers: operatorAuthorizationHeaders(operatorSession),
     });
     return payload.submissions;
   }
@@ -398,9 +426,9 @@ export async function listBackendSubmissions(adminToken?: string): Promise<Backe
   return payload.submissions;
 }
 
-export async function listBackendAudit(adminToken = ""): Promise<BackendAuditEntry[]> {
+export async function listBackendAudit(operatorSession = ""): Promise<BackendAuditEntry[]> {
   const payload = await requestJson<{ auditLog: BackendAuditEntry[] }>("/audit", {
-    headers: adminToken ? { "x-admin-token": adminToken } : {},
+    headers: operatorAuthorizationHeaders(operatorSession),
   });
   return payload.auditLog;
 }
@@ -408,11 +436,11 @@ export async function listBackendAudit(adminToken = ""): Promise<BackendAuditEnt
 export function moderateBackendSubmission(
   id: string,
   input: BackendModerationInput,
-  adminToken: string,
+  operatorSession: string,
 ): Promise<BackendSubmission> {
   return requestSubmission(`/admin/submissions/${encodeURIComponent(id)}/review`, {
     method: "POST",
-    headers: adminToken ? { "x-admin-token": adminToken } : {},
+    headers: operatorAuthorizationHeaders(operatorSession),
     body: JSON.stringify(input),
   }, false);
 }

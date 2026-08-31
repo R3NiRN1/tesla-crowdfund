@@ -10,7 +10,14 @@ import {
 } from "./auth.mjs";
 import { issueWalletChallenge } from "./challenges.mjs";
 import { getBackendConfig } from "./config.mjs";
+import {
+  auditOperatorAction,
+  authenticateOperatorCredential,
+  requireOperatorRole,
+  revokeOperatorSession,
+} from "./operator-auth.mjs";
 import { resolveClientIp } from "./proxy.mjs";
+import { getRepository } from "./repository.mjs";
 import {
   getPublicationVerificationConfig,
   verifyCampaignPublication,
@@ -29,10 +36,11 @@ import {
 const {
   port: PORT,
   production: PRODUCTION,
-  adminToken: ADMIN_TOKEN,
+  storageDriver: STORAGE_DRIVER,
   corsOrigin: CORS_ORIGIN,
   trustedProxyIps: TRUSTED_PROXY_IPS,
 } = getBackendConfig();
+const REPOSITORY = getRepository();
 const STARTED_AT = new Date();
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_BUCKETS = new Map();
@@ -63,9 +71,9 @@ function publicationVerificationStatus() {
 }
 
 function configWarnings() {
-  const warnings = ["File-backed persistence is for alpha operations only; configure backup/restore before launch."];
+  const warnings = [];
+  if (!REPOSITORY.durable) warnings.push("File-backed persistence is local-development only; production requires PostgreSQL.");
   if (!PRODUCTION) warnings.push("NODE_ENV is not production; launch guardrails may be relaxed.");
-  if (!ADMIN_TOKEN) warnings.push("ADMIN_TOKEN is unset; admin routes are open for local alpha only.");
   if (CORS_ORIGIN === "*") warnings.push("CORS_ORIGIN allows all origins; production must pin an app origin.");
   if (TRUSTED_PROXY_IPS.length > 0) warnings.push(`Forwarded client IPs are trusted only through ${TRUSTED_PROXY_IPS.length} explicitly configured proxy IP(s).`);
   const publication = publicationVerificationStatus();
@@ -83,19 +91,21 @@ function submissionCounts(submissions) {
   );
 }
 
-function diagnosticsSnapshot() {
-  const store = readStore();
+async function diagnosticsSnapshot() {
+  const store = await readStore();
   const publicationVerification = publicationVerificationStatus();
+  const activeOperators = store.operators.filter((operator) => operator.active !== false).length;
   return {
-    service: "tesla-crowdfund-backend-alpha",
+    service: "tesla-crowdfund-backend-v2",
     startedAt: STARTED_AT.toISOString(),
     uptimeSeconds: Math.round(process.uptime()),
     config: {
       production: PRODUCTION,
       corsOrigin: CORS_ORIGIN,
-      adminTokenConfigured: Boolean(ADMIN_TOKEN),
       trustedProxyCount: TRUSTED_PROXY_IPS.length,
-      storage: "file-backed-json",
+      storage: STORAGE_DRIVER,
+      durableStorage: REPOSITORY.durable,
+      operatorAuthConfigured: activeOperators > 0,
       publicationVerification,
     },
     warnings: configWarnings(),
@@ -103,7 +113,8 @@ function diagnosticsSnapshot() {
       submissions: submissionCounts(store.submissions),
       auditEvents: store.auditLog.length,
       authNonces: store.nonces.length,
-      walletSessions: activeWalletSessionCount(),
+      walletSessions: await activeWalletSessionCount(),
+      activeOperators,
     },
     recentAudit: store.auditLog.slice(0, 25),
   };
@@ -168,7 +179,7 @@ function send(res, statusCode, payload) {
     "content-type": "application/json; charset=utf-8",
     "access-control-allow-origin": CORS_ORIGIN,
     "access-control-allow-methods": "GET,POST,PATCH,OPTIONS",
-    "access-control-allow-headers": "content-type,authorization,x-admin-token,x-request-id",
+    "access-control-allow-headers": "content-type,authorization,x-request-id",
     "cache-control": "no-store",
     "x-content-type-options": "nosniff",
     "x-request-id": res.requestId ?? "",
@@ -220,41 +231,23 @@ function readBody(req) {
   });
 }
 
-function requireAdmin(req) {
-  if (!ADMIN_TOKEN) {
-    return {
-      alphaBypass: true,
-      note: "ADMIN_TOKEN is not set; admin route is open for local alpha only.",
-    };
-  }
-
-  if (req.headers["x-admin-token"] !== ADMIN_TOKEN) {
-    const error = new Error("admin token required");
-    error.statusCode = 401;
-    error.code = "admin-token-required";
-    throw error;
-  }
-
-  return { alphaBypass: false };
-}
-
 function bearerToken(req) {
   const authorization = headerValue(req.headers.authorization).trim();
   const match = authorization.match(/^Bearer\s+([a-fA-F0-9]{64})$/);
   return match?.[1] ?? "";
 }
 
-function requireWalletSession(req) {
+async function requireWalletSession(req) {
   return getWalletSession(bearerToken(req));
 }
 
-function getSubmission(id) {
-  return readStore().submissions.find((submission) => submission.id === id);
+async function getSubmission(id) {
+  return (await readStore()).submissions.find((submission) => submission.id === id);
 }
 
-function requireCreatorSubmission(req, id) {
-  const session = requireWalletSession(req);
-  const submission = getSubmission(id);
+async function requireCreatorSubmission(req, id) {
+  const session = await requireWalletSession(req);
+  const submission = await getSubmission(id);
   if (!submission) {
     const error = new Error("submission not found");
     error.statusCode = 404;
@@ -268,6 +261,10 @@ function requireCreatorSubmission(req, id) {
     throw error;
   }
   return { session, submission };
+}
+
+async function requireOperator(req, role) {
+  return requireOperatorRole(bearerToken(req), role);
 }
 
 function requireBodyCreator(body, session, fallback = "") {
@@ -292,14 +289,15 @@ async function handler(req, res) {
   if (!enforceRateLimit(req, res, url.pathname)) return;
 
   if (req.method === "GET" && url.pathname === "/health") {
-    const diagnostics = diagnosticsSnapshot();
+    const diagnostics = await diagnosticsSnapshot();
     send(res, 200, {
       ok: true,
       service: diagnostics.service,
       status: "ok",
       productionReady:
         PRODUCTION
-        && Boolean(ADMIN_TOKEN)
+        && diagnostics.config.durableStorage
+        && diagnostics.config.operatorAuthConfigured
         && CORS_ORIGIN !== "*"
         && diagnostics.config.publicationVerification.ready,
       startedAt: diagnostics.startedAt,
@@ -311,51 +309,68 @@ async function handler(req, res) {
   }
 
   if (req.method === "GET" && url.pathname === "/admin/diagnostics") {
-    const admin = requireAdmin(req);
-    send(res, 200, { ok: true, diagnostics: diagnosticsSnapshot(), admin });
+    const operator = await requireOperator(req, "diagnostics.read");
+    await auditOperatorAction(operator, "operator.diagnostics_read", { requestId: res.requestId });
+    send(res, 200, { ok: true, diagnostics: await diagnosticsSnapshot(), operator });
     return;
   }
 
   if (req.method === "GET" && url.pathname === "/admin/submissions") {
-    const admin = requireAdmin(req);
-    send(res, 200, { submissions: readStore().submissions, admin });
+    const operator = await requireOperator(req, "submission.read");
+    await auditOperatorAction(operator, "operator.submissions_read", { requestId: res.requestId });
+    send(res, 200, { submissions: (await readStore()).submissions, operator });
     return;
   }
 
   if (req.method === "GET" && url.pathname === "/audit") {
-    const admin = requireAdmin(req);
-    send(res, 200, { auditLog: readStore().auditLog, admin });
+    const operator = await requireOperator(req, "audit.read");
+    await auditOperatorAction(operator, "operator.audit_read", { requestId: res.requestId });
+    send(res, 200, { auditLog: (await readStore()).auditLog, operator });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/operator/auth") {
+    const body = await readBody(req);
+    send(res, 200, await authenticateOperatorCredential(body.credential));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/operator/logout") {
+    const token = bearerToken(req);
+    const operator = await requireOperatorRole(token, "submission.read");
+    await revokeOperatorSession(token);
+    send(res, 200, { ok: true, operatorId: operator.id });
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/auth/nonce") {
     const body = await readBody(req);
-    send(res, 201, issueWalletChallenge(body.address));
+    send(res, 201, await issueWalletChallenge(body.address));
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/auth/verify") {
     const body = await readBody(req);
-    send(res, 200, verifyWalletSignature(body.address, body.nonce, body.signature));
+    send(res, 200, await verifyWalletSignature(body.address, body.nonce, body.signature));
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/auth/logout") {
     const token = bearerToken(req);
-    const session = getWalletSession(token);
-    revokeWalletSession(token);
+    const session = await getWalletSession(token);
+    await revokeWalletSession(token);
     send(res, 200, { ok: true, address: session.address });
     return;
   }
 
   if (req.method === "GET" && url.pathname === "/public/campaigns") {
-    send(res, 200, { campaigns: listPublishedCampaigns() });
+    send(res, 200, { campaigns: await listPublishedCampaigns() });
     return;
   }
 
   if (req.method === "GET" && url.pathname === "/submissions") {
-    const session = requireWalletSession(req);
-    const submissions = readStore().submissions.filter(
+    const session = await requireWalletSession(req);
+    const submissions = (await readStore()).submissions.filter(
       (submission) => submission.creatorAddress.toLowerCase() === session.address.toLowerCase(),
     );
     send(res, 200, { submissions });
@@ -363,33 +378,33 @@ async function handler(req, res) {
   }
 
   if (req.method === "POST" && url.pathname === "/submissions") {
-    const session = requireWalletSession(req);
+    const session = await requireWalletSession(req);
     const body = await readBody(req);
     requireBodyCreator(body, session);
-    send(res, 201, { submission: createSubmission({ ...body, creatorAddress: session.address }) });
+    send(res, 201, { submission: await createSubmission({ ...body, creatorAddress: session.address }, { kind: "wallet", id: session.address }) });
     return;
   }
 
   if (req.method === "PATCH" && parts[0] === "submissions" && parts.length === 2) {
-    const { session, submission: current } = requireCreatorSubmission(req, parts[1]);
+    const { session, submission: current } = await requireCreatorSubmission(req, parts[1]);
     const body = await readBody(req);
     requireBodyCreator(body, session, current.creatorAddress);
     send(res, 200, {
-      submission: updateSubmission(parts[1], { ...body, creatorAddress: current.creatorAddress }),
+      submission: await updateSubmission(parts[1], { ...body, creatorAddress: current.creatorAddress }, { kind: "wallet", id: session.address }),
     });
     return;
   }
 
   if (req.method === "GET" && parts[0] === "submissions" && parts.length === 2) {
-    const { submission } = requireCreatorSubmission(req, parts[1]);
+    const { submission } = await requireCreatorSubmission(req, parts[1]);
     send(res, 200, { submission });
     return;
   }
 
   if (req.method === "GET" && parts.length === 3 && parts[0] === "submissions" && parts[2] === "metadata") {
-    requireCreatorSubmission(req, parts[1]);
+    await requireCreatorSubmission(req, parts[1]);
     send(res, 200, {
-      metadata: buildSubmissionMetadata(parts[1]),
+      metadata: await buildSubmissionMetadata(parts[1]),
       storage: "external-reference-only",
       note: "Upload this JSON and referenced media to external storage, then save its resulting metadataURI on the submission.",
     });
@@ -397,19 +412,19 @@ async function handler(req, res) {
   }
 
   if (req.method === "POST" && parts.length === 3 && parts[0] === "submissions" && parts[2] === "submit") {
-    requireCreatorSubmission(req, parts[1]);
+    const { session } = await requireCreatorSubmission(req, parts[1]);
     const body = await readBody(req);
-    const submission = updateSubmissionStatus(parts[1], "pending_review", {
+    const submission = await updateSubmissionStatus(parts[1], "pending_review", {
       submittedAt: new Date().toISOString(),
       submitNote: String(body.note || "").trim(),
       review: null,
-    });
+    }, { kind: "wallet", id: session.address });
     send(res, 200, { submission });
     return;
   }
 
   if (req.method === "POST" && parts.length === 4 && parts[0] === "admin" && parts[1] === "submissions" && parts[3] === "review") {
-    const admin = requireAdmin(req);
+    const operator = await requireOperator(req, "submission.review");
     const body = await readBody(req);
     const decision = String(body.decision || "").trim();
 
@@ -418,9 +433,8 @@ async function handler(req, res) {
       return;
     }
 
-    const reviewerAddress = String(body.reviewerAddress || "").trim();
-    if (!/^0x[a-fA-F0-9]{40}$/.test(reviewerAddress)) {
-      sendError(res, 400, "invalid-reviewer-address", "valid reviewerAddress is required");
+    if (Object.hasOwn(body, "reviewerAddress")) {
+      sendError(res, 400, "request-identity-forbidden", "reviewer identity is derived from the authenticated operator session");
       return;
     }
 
@@ -431,28 +445,29 @@ async function handler(req, res) {
     }
 
     const reviewedAt = new Date().toISOString();
-    const submission = updateSubmissionStatus(parts[2], decision, {
+    const submission = await updateSubmissionStatus(parts[2], decision, {
       review: {
         decision,
         note: String(body.note || "").trim(),
-        reviewerAddress,
+        reviewerOperatorId: operator.id,
+        reviewerSubject: operator.subject,
         reviewedAt,
-        alphaAdminBypass: admin.alphaBypass,
       },
       verification: {
         state: manuallyVerified ? "manually_verified" : "unverified",
         note: String(body.verificationNote || "").trim(),
-        reviewerAddress,
+        reviewerOperatorId: operator.id,
+        reviewerSubject: operator.subject,
         verifiedAt: manuallyVerified ? reviewedAt : null,
       },
-    });
+    }, { kind: "operator", id: operator.id });
 
-    send(res, 200, { submission, admin });
+    send(res, 200, { submission, operator });
     return;
   }
 
   if (req.method === "POST" && parts.length === 3 && parts[0] === "submissions" && parts[2] === "published") {
-    const { session, submission: current } = requireCreatorSubmission(req, parts[1]);
+    const { session, submission: current } = await requireCreatorSubmission(req, parts[1]);
     const body = await readBody(req);
     requireBodyCreator(body, session, current.creatorAddress);
 
@@ -471,21 +486,21 @@ async function handler(req, res) {
       creatorAddress: session.address,
     });
 
-    const submission = updateSubmissionStatus(parts[1], "published", {
+    const submission = await updateSubmissionStatus(parts[1], "published", {
       publish: {
         ...verifiedPublish,
         publishedAt: verifiedPublish.verifiedAt,
       },
-    });
+    }, { kind: "wallet", id: session.address });
 
     send(res, 200, { submission });
     return;
   }
 
   if (req.method === "POST" && parts.length === 3 && parts[0] === "submissions" && parts[2] === "updates") {
-    const { session } = requireCreatorSubmission(req, parts[1]);
+    const { session } = await requireCreatorSubmission(req, parts[1]);
     const body = await readBody(req);
-    const update = addCampaignUpdate(parts[1], { ...body, publisherAddress: session.address });
+    const update = await addCampaignUpdate(parts[1], { ...body, publisherAddress: session.address }, { kind: "wallet", id: session.address });
     send(res, 201, { update });
     return;
   }
@@ -509,8 +524,18 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+await REPOSITORY.initialize();
+if (PRODUCTION) {
+  const store = await readStore();
+  const releaseOperators = store.operators.filter((operator) => operator.active !== false && operator.roles?.includes("submission.review"));
+  if (!releaseOperators.length) {
+    throw Object.assign(new Error("production requires at least one active operator with submission.review role"), {
+      code: "production-operator-required",
+    });
+  }
+}
+
 server.listen(PORT, () => {
-  console.log(`TES Crowdfund backend alpha listening on http://localhost:${PORT}`);
-  console.log(`Runtime mode: ${PRODUCTION ? "production guardrails enabled" : "local alpha"}.`);
-  console.log("File-backed persistence remains unsuitable for production or mainnet launch.");
+  console.log(`TES Crowdfund backend V2 listening on http://localhost:${PORT}`);
+  console.log(`Runtime mode: ${PRODUCTION ? "production guardrails enabled" : "local development"}; storage=${STORAGE_DRIVER}.`);
 });

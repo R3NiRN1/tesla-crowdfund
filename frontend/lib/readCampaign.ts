@@ -1,6 +1,8 @@
 import { getPublicClient } from "./publicClient";
 import { campaignAbi } from "./campaignAbi";
 
+export const EXPECTED_CAMPAIGN_VERSION = "2.0.0-alpha";
+
 export type CampaignState = 0 | 1 | 2 | 3;
 export type MilestoneStatus = 0 | 1 | 2 | 3;
 export type VoteChoice = 0 | 1 | 2;
@@ -34,6 +36,7 @@ export type MilestoneView = {
 
 export type CampaignView = {
   address: `0x${string}`;
+  contractVersion: string;
   description: string;
   goal: bigint;
   deadline: bigint;
@@ -64,6 +67,7 @@ export type CampaignParticipantView = {
 export async function readCampaign(address: `0x${string}`): Promise<CampaignView> {
   const publicClient = getPublicClient();
   const [
+    contractVersion,
     description,
     goal,
     deadline,
@@ -84,6 +88,7 @@ export async function readCampaign(address: `0x${string}`): Promise<CampaignView
     uniqueBackerCount,
     milestoneCount,
   ] = await Promise.all([
+    publicClient.readContract({ address, abi: campaignAbi, functionName: "CONTRACT_VERSION" }),
     publicClient.readContract({ address, abi: campaignAbi, functionName: "description" }),
     publicClient.readContract({ address, abi: campaignAbi, functionName: "goal" }),
     publicClient.readContract({ address, abi: campaignAbi, functionName: "deadline" }),
@@ -156,6 +161,7 @@ export async function readCampaign(address: `0x${string}`): Promise<CampaignView
 
   return {
     address,
+    contractVersion,
     description,
     goal,
     deadline,

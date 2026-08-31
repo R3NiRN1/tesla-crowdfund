@@ -3,6 +3,7 @@ import ethersPackage from "ethers";
 const { ethers } = ethersPackage;
 
 const EXPECTED_FACTORY_VERSION = "2.0.0-alpha";
+const EXPECTED_CAMPAIGN_VERSION = "2.0.0-alpha";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 const factoryInterface = new ethers.utils.Interface([
@@ -14,6 +15,7 @@ const factoryInterface = new ethers.utils.Interface([
 ]);
 
 const campaignInterface = new ethers.utils.Interface([
+  "function CONTRACT_VERSION() view returns (string)",
   "function owner() view returns (address)",
   "function token() view returns (address)",
   "function arbitrator() view returns (address)",
@@ -266,7 +268,8 @@ export async function verifyCampaignPublication({ transactionHash, submission, c
     throw verificationError("publish-campaign-code-missing", "CampaignV2Created address has no contract code at the publication block");
   }
 
-  const [campaignOwner, campaignToken, campaignArbitrator, campaignGoal, campaignDeadline, campaignDescription, milestoneCount] = await Promise.all([
+  const [campaignVersion, campaignOwner, campaignToken, campaignArbitrator, campaignGoal, campaignDeadline, campaignDescription, milestoneCount] = await Promise.all([
+    callView(rpc, campaignAddress, campaignInterface, "CONTRACT_VERSION", receipt.blockNumber),
     callView(rpc, campaignAddress, campaignInterface, "owner", receipt.blockNumber),
     callView(rpc, campaignAddress, campaignInterface, "token", receipt.blockNumber),
     callView(rpc, campaignAddress, campaignInterface, "arbitrator", receipt.blockNumber),
@@ -276,6 +279,7 @@ export async function verifyCampaignPublication({ transactionHash, submission, c
     callView(rpc, campaignAddress, campaignInterface, "milestoneCount", receipt.blockNumber),
   ]);
 
+  requireEqual(String(campaignVersion), EXPECTED_CAMPAIGN_VERSION, "publish-wrong-campaign-version", "deployed campaign does not report the expected V2 contract version");
   requireAddress(campaignOwner, creatorAddress, "publish-campaign-state-mismatch", "deployed campaign owner does not match authenticated creator");
   requireAddress(campaignToken, verificationConfig.tokenAddress, "publish-campaign-state-mismatch", "deployed campaign token does not match approved token");
   requireAddress(campaignArbitrator, verificationConfig.arbitratorAddress, "publish-campaign-state-mismatch", "deployed campaign arbitrator does not match approved arbitrator");
@@ -296,6 +300,7 @@ export async function verifyCampaignPublication({ transactionHash, submission, c
     tokenAddress: verificationConfig.tokenAddress,
     arbitratorAddress: verificationConfig.arbitratorAddress,
     factoryVersion: String(factoryVersion),
+    campaignVersion: String(campaignVersion),
     blockNumber: receipt.blockNumber,
     confirmations,
     verifiedOnChain: true,
@@ -307,4 +312,5 @@ export const publicationVerificationInternals = {
   factoryInterface,
   campaignInterface,
   EXPECTED_FACTORY_VERSION,
+  EXPECTED_CAMPAIGN_VERSION,
 };

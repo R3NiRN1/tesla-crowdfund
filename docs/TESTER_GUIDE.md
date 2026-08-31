@@ -51,7 +51,7 @@ Expected disabled reasons:
 
 1. Open `/admin`.
 2. Confirm backend health and environment warnings.
-3. Enter the admin token when configured.
+3. Authenticate with a server-provisioned named operator credential.
 4. Filter the review queue by `pending review`, `needs changes`, `approved`, and `published`.
 5. Inspect readiness blockers, metadata URI, media references, review history, and audit coverage.
 6. For needs changes, enter a clear moderation note and choose `Needs changes`.
@@ -85,7 +85,7 @@ Expected disabled reasons:
 
 ## Known Launch Blockers
 
-- Production env missing `ADMIN_TOKEN` or explicit `CORS_ORIGIN`.
+- Production missing PostgreSQL `DATABASE_URL`, applied migrations, an active review operator, or explicit `CORS_ORIGIN`.
 - Unresolved dependency-audit acceptance or wallet-stack upgrade plan.
 - Backup/restore rehearsal not completed.
 - Public copy failing to distinguish platform review from contract behavior.

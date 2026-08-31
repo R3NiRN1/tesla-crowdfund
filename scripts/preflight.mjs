@@ -78,9 +78,6 @@ const bscscanBase = readRequiredEnv(
   "NEXT_PUBLIC_BSCSCAN_BASE is required and must be an http(s) URL."
 );
 
-const wcEnabled = process.env.NEXT_PUBLIC_WC_ENABLED === "true";
-const wcProjectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID?.trim() || "";
-
 const chainId = chainIdRaw ? Number(chainIdRaw) : Number.NaN;
 if (chainIdRaw) {
   if (!Number.isFinite(chainId)) {
@@ -104,24 +101,15 @@ if (bscscanBase && !bscscanBaseIsValid) {
 validateAddress("NEXT_PUBLIC_FACTORY_ADDRESS", factoryAddress);
 validateAddress("NEXT_PUBLIC_TOKEN_ADDRESS", tokenAddress);
 
-if (wcEnabled && !wcProjectId) {
-  errors.push("NEXT_PUBLIC_WC_PROJECT_ID is required when NEXT_PUBLIC_WC_ENABLED=true.");
-}
-
-if (!wcEnabled && !wcProjectId) {
-  warnings.push("WalletConnect disabled; NEXT_PUBLIC_WC_PROJECT_ID not required.");
-}
-
 const nodeEnv = process.env.NODE_ENV?.trim() || "development";
-const adminToken = process.env.ADMIN_TOKEN?.trim() || "";
+const storageDriver = process.env.STORAGE_DRIVER?.trim() || (process.env.DATABASE_URL ? "postgres" : "file");
+const databaseUrl = process.env.DATABASE_URL?.trim() || "";
 const corsOrigin = process.env.CORS_ORIGIN?.trim() || "*";
 
-if (nodeEnv === "production" && adminToken.length < 24) {
-  errors.push("Production backend requires ADMIN_TOKEN with at least 24 characters.");
-} else if (!adminToken) {
-  warnings.push("ADMIN_TOKEN is unset; admin routes are open only for local alpha use.");
-} else if (adminToken.length < 24) {
-  warnings.push("ADMIN_TOKEN is shorter than the production minimum of 24 characters.");
+if (nodeEnv === "production" && (storageDriver !== "postgres" || !databaseUrl)) {
+  errors.push("Production backend requires STORAGE_DRIVER=postgres and DATABASE_URL.");
+} else if (storageDriver === "file") {
+  warnings.push("File storage is local-development only; production requires PostgreSQL.");
 }
 
 if (nodeEnv === "production" && (!corsOrigin || corsOrigin === "*")) {

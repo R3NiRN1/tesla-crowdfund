@@ -17,8 +17,6 @@ type WizardState = {
   bscscanBase: string;
   factoryAddress: string;
   tokenAddress: string;
-  wcEnabled: boolean;
-  wcProjectId: string;
 };
 
 const initialState: WizardState = {
@@ -27,8 +25,6 @@ const initialState: WizardState = {
   bscscanBase: "https://testnet.bscscan.com",
   factoryAddress: "",
   tokenAddress: "",
-  wcEnabled: false,
-  wcProjectId: "",
 };
 
 function isValidUrl(value: string) {
@@ -63,8 +59,6 @@ export default function SetupPage() {
       bscscanBase: stored.bscscanBase ?? "",
       factoryAddress: stored.factoryAddress ?? "",
       tokenAddress: stored.tokenAddress ?? "",
-      wcEnabled: stored.wcEnabled ?? false,
-      wcProjectId: stored.wcProjectId ?? "",
     });
   }, []);
 
@@ -85,7 +79,7 @@ export default function SetupPage() {
     if (step === 1) return !!state.chainId;
     if (step === 2) return isValidUrl(state.rpcUrl) && isValidUrl(state.bscscanBase);
     if (step === 3) return isValidAddress(state.factoryAddress) && isValidAddress(state.tokenAddress);
-    if (step === 4) return !state.wcEnabled || !!state.wcProjectId.trim();
+    if (step === 4) return true;
     return true;
   }, [state, step]);
 
@@ -103,8 +97,6 @@ export default function SetupPage() {
       bscscanBase: state.bscscanBase.trim() || null,
       factoryAddress: state.factoryAddress.trim(),
       tokenAddress: state.tokenAddress.trim(),
-      wcEnabled: state.wcEnabled,
-      wcProjectId: state.wcProjectId.trim() || null,
     };
     setStoredConfig(payload);
     setSaved(true);
@@ -117,8 +109,6 @@ export default function SetupPage() {
       `NEXT_PUBLIC_FACTORY_ADDRESS=${state.factoryAddress.trim() || ZERO_ADDRESS}`,
       `NEXT_PUBLIC_TOKEN_ADDRESS=${state.tokenAddress.trim() || ZERO_ADDRESS}`,
       `NEXT_PUBLIC_BSCSCAN_BASE=${state.bscscanBase.trim()}`,
-      `NEXT_PUBLIC_WC_ENABLED=${state.wcEnabled ? "true" : "false"}`,
-      `NEXT_PUBLIC_WC_PROJECT_ID=${state.wcEnabled ? state.wcProjectId.trim() : ""}`,
     ];
     return lines.join("\n");
   }, [state]);
@@ -384,29 +374,10 @@ export default function SetupPage() {
 
         {step === 4 && (
           <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16 }}>
-            <h2 style={{ marginTop: 0 }}>WalletConnect</h2>
-            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input
-                type="checkbox"
-                checked={state.wcEnabled}
-                onChange={(event) => setState((prev) => ({ ...prev, wcEnabled: event.target.checked }))}
-              />
-              Enable WalletConnect
-            </label>
-            {state.wcEnabled && (
-              <label style={{ display: "grid", gap: 6, marginTop: 12 }}>
-                WalletConnect Project ID
-                <input
-                  value={state.wcProjectId}
-                  onChange={(event) => setState((prev) => ({ ...prev, wcProjectId: event.target.value }))}
-                  placeholder="Project ID"
-                  style={{ padding: 8, borderRadius: 8, border: "1px solid #d1d5db" }}
-                />
-                {!state.wcProjectId.trim() && (
-                  <span style={{ color: "#dc2626", fontSize: 12 }}>Project ID is required when enabled.</span>
-                )}
-              </label>
-            )}
+            <h2 style={{ marginTop: 0 }}>Wallet connection</h2>
+            <p style={{ color: "#4b5563", marginBottom: 0 }}>
+              This release candidate accepts an injected browser wallet only. WalletConnect is intentionally unavailable until its dependency graph clears the high-severity advisory gate.
+            </p>
           </section>
         )}
 
@@ -419,8 +390,7 @@ export default function SetupPage() {
               <div>Explorer: {state.bscscanBase || "-"}</div>
               <div>Factory: {state.factoryAddress || "-"}</div>
               <div>Token: {state.tokenAddress || "-"}</div>
-              <div>WalletConnect: {state.wcEnabled ? "Enabled" : "Disabled"}</div>
-              {state.wcEnabled && <div>WC Project ID: {state.wcProjectId || "-"}</div>}
+              <div>Wallet: injected browser provider only</div>
             </div>
 
             <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #e5e7eb" }}>

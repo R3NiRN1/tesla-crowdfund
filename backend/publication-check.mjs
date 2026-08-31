@@ -7,7 +7,12 @@ import {
 } from "./publication-verifier.mjs";
 
 const { ethers } = ethersPackage;
-const { factoryInterface, campaignInterface, EXPECTED_FACTORY_VERSION } = publicationVerificationInternals;
+const {
+  factoryInterface,
+  campaignInterface,
+  EXPECTED_FACTORY_VERSION,
+  EXPECTED_CAMPAIGN_VERSION,
+} = publicationVerificationInternals;
 
 const factoryAddress = "0x1000000000000000000000000000000000000001";
 const tokenAddress = "0x2000000000000000000000000000000000000002";
@@ -123,6 +128,9 @@ function makeProvider(options = {}) {
       }
 
       if (target === campaignAddress.toLowerCase()) {
+        if (selector === campaignInterface.getSighash("CONTRACT_VERSION")) {
+          return campaignInterface.encodeFunctionResult("CONTRACT_VERSION", [options.campaignVersion ?? EXPECTED_CAMPAIGN_VERSION]);
+        }
         if (selector === campaignInterface.getSighash("owner")) {
           return campaignInterface.encodeFunctionResult("owner", [options.campaignOwner ?? creatorAddress]);
         }
@@ -168,6 +176,7 @@ assert.equal(verified.factoryAddress, factoryAddress);
 assert.equal(verified.chainId, 97);
 assert.equal(verified.tokenAddress, tokenAddress);
 assert.equal(verified.factoryVersion, EXPECTED_FACTORY_VERSION);
+assert.equal(verified.campaignVersion, EXPECTED_CAMPAIGN_VERSION);
 assert.ok(verified.confirmations >= config.confirmations);
 
 await expectCode(
@@ -193,6 +202,14 @@ await expectCode(
 await expectCode(
   verifyCampaignPublication({ transactionHash: txHash, submission, creatorAddress, config, provider: makeProvider({ factoryToken: otherAddress }) }),
   "publish-wrong-token",
+);
+await expectCode(
+  verifyCampaignPublication({ transactionHash: txHash, submission, creatorAddress, config, provider: makeProvider({ factoryVersion: "1.0.0" }) }),
+  "publish-wrong-factory-version",
+);
+await expectCode(
+  verifyCampaignPublication({ transactionHash: txHash, submission, creatorAddress, config, provider: makeProvider({ campaignVersion: "1.0.0" }) }),
+  "publish-wrong-campaign-version",
 );
 await expectCode(
   verifyCampaignPublication({ transactionHash: txHash, submission, creatorAddress, config, provider: makeProvider({ campaignGoal: "301" }) }),

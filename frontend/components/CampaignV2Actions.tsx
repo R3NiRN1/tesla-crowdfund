@@ -7,6 +7,7 @@ import { useAccount, useWaitForTransactionReceipt, useWriteContract } from "wagm
 import { campaignWriteAbi } from "@/lib/campaignWriteAbi";
 import {
   MILESTONE_STATUS_LABELS,
+  EXPECTED_CAMPAIGN_VERSION,
   readCampaignParticipant,
   type CampaignParticipantView,
   type CampaignView,
@@ -75,7 +76,11 @@ export default function CampaignV2Actions({
   const now = BigInt(Math.floor(Date.now() / 1000));
   const isOwner = sameAddress(address, campaign.owner);
   const isArbitrator = sameAddress(address, campaign.arbitrator);
-  const walletBlocked = !isConnected || !address || Boolean(disabledReason) || isPending || receipt.isLoading;
+  const versionMismatch = campaign.contractVersion !== EXPECTED_CAMPAIGN_VERSION
+    ? `Writes disabled: campaign version ${campaign.contractVersion || "missing"} is not ${EXPECTED_CAMPAIGN_VERSION}.`
+    : null;
+  const effectiveDisabledReason = disabledReason || versionMismatch;
+  const walletBlocked = !isConnected || !address || Boolean(effectiveDisabledReason) || isPending || receipt.isLoading;
   const validEvidenceHash = /^0x[a-fA-F0-9]{64}$/.test(evidenceHash.trim()) && !/^0x0{64}$/i.test(evidenceHash.trim());
 
   const refreshParticipant = useCallback(async () => {
@@ -128,12 +133,12 @@ export default function CampaignV2Actions({
 
   const walletStatus = useMemo(() => {
     if (!isConnected || !address) return "Connect a wallet to see contributor/creator actions.";
-    if (disabledReason) return disabledReason;
+    if (effectiveDisabledReason) return effectiveDisabledReason;
     if (participantError) return `Wallet state read failed: ${participantError}`;
     if (!participant) return "Loading wallet campaign state...";
     const role = isOwner ? "creator" : isArbitrator ? "configured arbitrator" : participant.contribution > 0n ? "contributor" : "observer";
     return `${role}; contribution weight ${formatTes(participant.contribution)}.`;
-  }, [address, disabledReason, isArbitrator, isConnected, isOwner, participant, participantError]);
+  }, [address, effectiveDisabledReason, isArbitrator, isConnected, isOwner, participant, participantError]);
 
   return (
     <div style={{ marginTop: 18 }}>

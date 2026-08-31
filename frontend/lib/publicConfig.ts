@@ -10,8 +10,6 @@ export type PublicConfig = {
   factoryAddress: string;
   tokenAddress: string;
   bscscanBase: string | null;
-  wcEnabled: boolean;
-  wcProjectId: string | null;
   isConfigured: boolean;
   missing: string[];
 };
@@ -39,16 +37,12 @@ function normalizeConfigValues(storedConfig?: StoredConfig | null) {
   const chainId = chainIdRaw ? Number(chainIdRaw) : null;
   const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL?.trim() || null;
   const bscscanBase = process.env.NEXT_PUBLIC_BSCSCAN_BASE?.trim() || null;
-  const wcEnabled = process.env.NEXT_PUBLIC_WC_ENABLED === "true";
-  const wcProjectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID?.trim() || null;
 
   const hasStored = storedConfig !== undefined && storedConfig !== null;
 
   const resolvedChainId = hasStored ? storedConfig.chainId : chainId;
   const resolvedRpcUrl = hasStored ? storedConfig.rpcUrl : rpcUrl;
   const resolvedBscscan = hasStored ? storedConfig.bscscanBase : bscscanBase;
-  const resolvedWcEnabled = hasStored ? storedConfig.wcEnabled : wcEnabled;
-  const resolvedWcProjectId = hasStored ? storedConfig.wcProjectId : wcProjectId;
 
   const factorySource = hasStored ? storedConfig.factoryAddress : process.env.NEXT_PUBLIC_FACTORY_ADDRESS;
   const tokenSource = hasStored ? storedConfig.tokenAddress : process.env.NEXT_PUBLIC_TOKEN_ADDRESS;
@@ -57,8 +51,6 @@ function normalizeConfigValues(storedConfig?: StoredConfig | null) {
     chainId: resolvedChainId,
     rpcUrl: resolvedRpcUrl,
     bscscanBase: resolvedBscscan,
-    wcEnabled: resolvedWcEnabled,
-    wcProjectId: resolvedWcProjectId,
     factorySource,
     tokenSource,
   };
@@ -91,8 +83,6 @@ export function getPublicConfig(storedConfig?: StoredConfig | null): PublicConfi
     factoryAddress: factoryAddress.value,
     tokenAddress: tokenAddress.value,
     bscscanBase: resolved.bscscanBase,
-    wcEnabled: resolved.wcEnabled,
-    wcProjectId: resolved.wcProjectId,
     isConfigured,
     missing,
   };

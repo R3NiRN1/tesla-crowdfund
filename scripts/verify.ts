@@ -27,6 +27,7 @@ type VerifyConfig = {
 };
 
 const DEPLOYMENTS_DIR = path.join(__dirname, "..", "deployments");
+const EXPECTED_FACTORY_VERSION = "2.0.0-alpha";
 
 function getVerifyConfig(): VerifyConfig {
   const apiKey = process.env.BSCSCAN_API_KEY;
@@ -125,6 +126,20 @@ async function main() {
   }
   if (deployment.chainId !== actualChainId) {
     throw new Error(`Deployment chain ${deployment.chainId} does not match connected chain ${actualChainId}.`);
+  }
+  if (deployment.networkName !== network.name) {
+    throw new Error(`Deployment network ${deployment.networkName} does not match connected network ${network.name}.`);
+  }
+  if (deployment.metadata.factoryVersion !== EXPECTED_FACTORY_VERSION) {
+    throw new Error(
+      `Refusing deployment record factory version ${deployment.metadata.factoryVersion}; expected ${EXPECTED_FACTORY_VERSION}.`,
+    );
+  }
+  if (
+    deployment.metadata.tokenSource !== "external" &&
+    deployment.metadata.tokenSource !== "MockTES"
+  ) {
+    throw new Error(`Unsupported token source in deployment record: ${deployment.metadata.tokenSource}.`);
   }
 
   const { FactoryV2: factoryAddress, Token: tokenAddress, Arbitrator: arbitratorAddress } = deployment.contracts;

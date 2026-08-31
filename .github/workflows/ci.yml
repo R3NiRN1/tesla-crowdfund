@@ -8,39 +8,103 @@ on:
       - "**"
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_PUBLIC_RPC_URL: "https://bsc-testnet.publicnode.com"
+  NEXT_PUBLIC_CHAIN_ID: "97"
+  NEXT_PUBLIC_FACTORY_ADDRESS: "0x0000000000000000000000000000000000000000"
+  NEXT_PUBLIC_TOKEN_ADDRESS: "0x0000000000000000000000000000000000000000"
+  NEXT_PUBLIC_BSCSCAN_BASE: "https://testnet.bscscan.com"
+
 jobs:
-  ci:
-    name: CI
-    runs-on: ubuntu-latest
+  backend:
+    name: Backend security, auth and provenance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16.9
+        env:
+          POSTGRES_USER: tes_ci
+          POSTGRES_PASSWORD: tes_ci_password
+          POSTGRES_DB: tes_crowdfund_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tes_ci -d tes_crowdfund_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
-      NEXT_PUBLIC_RPC_URL: "https://bsc-testnet.publicnode.com"
-      NEXT_PUBLIC_CHAIN_ID: "97"
-      NEXT_PUBLIC_FACTORY_ADDRESS: "0x0000000000000000000000000000000000000000"
-      NEXT_PUBLIC_TOKEN_ADDRESS: "0x0000000000000000000000000000000000000000"
-      NEXT_PUBLIC_BSCSCAN_BASE: "https://testnet.bscscan.com"
-      NEXT_PUBLIC_WC_ENABLED: "false"
+      DATABASE_URL: postgresql://tes_ci:tes_ci_password@127.0.0.1:5432/tes_crowdfund_ci
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-      - name: Use Node.js 20.9.0
-        uses: actions/setup-node@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Use Node.js 20.19.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 20.19.0
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            frontend/package-lock.json
-      - name: Install dependencies (root)
+          package-manager-cache: false
+      - name: Install root dependencies
         run: npm ci
-      - name: Check backend state and auth
+      - name: Check backend state, auth, persistence and provenance
         run: npm run backend:check
+      - name: Apply reproducible PostgreSQL migrations
+        run: npm run backend:migrate
+      - name: Check PostgreSQL transactions and multi-instance semantics
+        run: npm run backend:postgres:check
+
+  contracts:
+    name: Compile and test contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Use Node.js 20.19.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20.19.0
+          package-manager-cache: false
+      - name: Install root dependencies
+        run: npm ci
       - name: Compile contracts
         run: npm run compile
-      - name: Test contracts
+      - name: Run complete contract tests
         run: npm run test:contracts
-      - name: Rehearse V2 deploy and smoke
-        env:
-          ARBITRATOR_ADDRESS: "0x1111111111111111111111111111111111111111"
+
+  deploy-smoke:
+    name: V2 deploy and smoke rehearsal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      ARBITRATOR_ADDRESS: "0x1111111111111111111111111111111111111111"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Use Node.js 20.19.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20.19.0
+          package-manager-cache: false
+      - name: Install root dependencies
+        run: npm ci
+      - name: Compile contracts
+        run: npm run compile
+      - name: Rehearse V2 deploy and smoke on one persistent local chain
+        shell: bash
         run: |
           set -euo pipefail
           npx hardhat node > /tmp/tes-crowdfund-hardhat.log 2>&1 &
@@ -67,9 +131,41 @@ jobs:
 
           npx hardhat run scripts/deploy.ts --network localhost
           npx hardhat run scripts/smoke.ts --network localhost
-      - name: Preflight
+
+  preflight:
+    name: Release preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Use Node.js 20.19.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20.19.0
+          package-manager-cache: false
+      - name: Install root dependencies
+        run: npm ci
+      - name: Run preflight
         run: npm run preflight
-      - name: Install dependencies (frontend)
+
+  frontend:
+    name: Frontend lint and production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Use Node.js 20.19.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20.19.0
+          package-manager-cache: false
+      - name: Install frontend dependencies
         run: npm --prefix frontend ci
       - name: Lint frontend
         run: npm --prefix frontend run lint

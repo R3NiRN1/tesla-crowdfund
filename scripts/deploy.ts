@@ -5,6 +5,7 @@ import { assertNetworkSafety } from "./guardrails";
 
 const DEPLOYMENTS_DIR = path.join(__dirname, "..", "deployments");
 const EXPECTED_FACTORY_VERSION = "2.0.0-alpha";
+const BSC_MAINNET_CHAIN_ID = 56;
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 function hasFlag(flag: string) {
@@ -40,8 +41,8 @@ async function main() {
   let tokenSource: "external" | "MockTES" = "external";
 
   if (!tokenAddress) {
-    if (network.name === "bscMainnet") {
-      throw new Error("TOKEN_ADDRESS must be explicitly set for bscMainnet. MockTES is forbidden on mainnet.");
+    if (actualChainId === BSC_MAINNET_CHAIN_ID) {
+      throw new Error("TOKEN_ADDRESS must be explicitly set on BSC mainnet. MockTES is forbidden on chain 56.");
     }
 
     const Token = await ethers.getContractFactory("MockTES");

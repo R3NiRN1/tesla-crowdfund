@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /**
  * @title CampaignV2
@@ -31,6 +32,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 contract CampaignV2 is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    string public constant CONTRACT_VERSION = "2.0.0-alpha";
     uint256 public constant BPS = 10_000;
     uint256 public constant CHALLENGE_THRESHOLD_BPS = 1_000; // 10% of contributed stake
     uint256 public constant CHALLENGE_PERIOD = 7 days;
@@ -423,7 +425,7 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
         if (refundableBackersRemaining == 1) {
             amount = refundPoolRemaining;
         } else {
-            amount = (refundPoolSnapshot * weight) / totalContributed;
+            amount = Math.mulDiv(refundPoolSnapshot, weight, totalContributed);
             if (amount > refundPoolRemaining) amount = refundPoolRemaining;
         }
 
@@ -431,7 +433,7 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
         refundPoolRemaining -= amount;
         totalRefunded += amount;
 
-        if (amount > 0) token.safeTransfer(msg.sender, amount);
+        _safeExactTransfer(msg.sender, amount);
         emit Refunded(msg.sender, weight, amount);
     }
 
@@ -449,7 +451,7 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
         totalReleased += milestone.amount;
         nextMilestone += 1;
 
-        token.safeTransfer(owner(), milestone.amount);
+        _safeExactTransfer(owner(), milestone.amount);
         emit MilestoneReleased(index, milestone.amount, owner());
 
         if (nextMilestone == milestones.length) {
@@ -476,6 +478,23 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
             refundableBackersRemaining,
             reason
         );
+    }
+
+    function _safeExactTransfer(address recipient, uint256 amount) internal {
+        if (amount == 0) return;
+
+        uint256 escrowBefore = token.balanceOf(address(this));
+        uint256 recipientBefore = token.balanceOf(recipient);
+        token.safeTransfer(recipient, amount);
+        uint256 escrowAfter = token.balanceOf(address(this));
+        uint256 recipientAfter = token.balanceOf(recipient);
+
+        if (
+            escrowAfter > escrowBefore ||
+            escrowBefore - escrowAfter != amount ||
+            recipientAfter < recipientBefore ||
+            recipientAfter - recipientBefore != amount
+        ) revert TokenAccountingMismatch();
     }
 
     function _thresholdWeight(uint256 total, uint256 thresholdBps) internal pure returns (uint256) {

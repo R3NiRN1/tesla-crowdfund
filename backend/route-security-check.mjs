@@ -9,7 +9,19 @@ const { ethers } = ethersPackage;
 const port = 20000 + Math.floor(Math.random() * 15000);
 const baseUrl = `http://127.0.0.1:${port}`;
 const tempDb = path.join(os.tmpdir(), `tesla-crowdfund-route-security-${Date.now()}.json`);
-const adminToken = "route-security-check-admin-token";
+process.env.TESLA_CROWDFUND_BACKEND_DB = tempDb;
+process.env.STORAGE_DRIVER = "file";
+const { createRepository, setRepositoryForTests } = await import("./repository.mjs");
+const { provisionOperator } = await import("./operator-auth.mjs");
+const setupRepository = createRepository({ file: tempDb });
+setRepositoryForTests(setupRepository);
+await setupRepository.initialize();
+const { credential: operatorCredential } = await provisionOperator({
+  subject: "route-security-operator",
+  displayName: "Route security operator",
+  roles: ["submission.read", "submission.review", "audit.read", "diagnostics.read"],
+});
+await setupRepository.close();
 
 const child = spawn(process.execPath, ["backend/server.mjs"], {
   cwd: process.cwd(),
@@ -19,7 +31,7 @@ const child = spawn(process.execPath, ["backend/server.mjs"], {
     BACKEND_PORT: String(port),
     TESLA_CROWDFUND_BACKEND_DB: tempDb,
     CORS_ORIGIN: "http://localhost:3000",
-    ADMIN_TOKEN: adminToken,
+    STORAGE_DRIVER: "file",
     BACKEND_RPC_URL: "https://rpc.invalid.example",
     BACKEND_CHAIN_ID: "97",
     BACKEND_FACTORY_V2_ADDRESS: "0x1000000000000000000000000000000000000001",
@@ -37,7 +49,7 @@ function waitForServer(timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`backend did not start: ${stderr}`)), timeoutMs);
     const onData = (chunk) => {
-      if (String(chunk).includes("TES Crowdfund backend alpha listening")) {
+      if (String(chunk).includes("TES Crowdfund backend V2 listening")) {
         clearTimeout(timer);
         child.stdout.off("data", onData);
         resolve();
@@ -51,11 +63,10 @@ function waitForServer(timeoutMs = 10000) {
   });
 }
 
-async function jsonRequest(pathname, { method = "GET", token = "", admin = "", body } = {}) {
+async function jsonRequest(pathname, { method = "GET", token = "", body } = {}) {
   const headers = {};
   if (body !== undefined) headers["content-type"] = "application/json";
   if (token) headers.authorization = `Bearer ${token}`;
-  if (admin) headers["x-admin-token"] = admin;
   const response = await fetch(`${baseUrl}${pathname}`, {
     method,
     headers,
@@ -92,6 +103,12 @@ try {
   const attacker = ethers.Wallet.createRandom();
   const ownerToken = await authenticate(owner);
   const attackerToken = await authenticate(attacker);
+  const operatorLogin = await jsonRequest("/operator/auth", {
+    method: "POST",
+    body: { credential: operatorCredential },
+  });
+  assert.equal(operatorLogin.response.status, 200);
+  const operatorToken = operatorLogin.payload.sessionToken;
 
   const unauthenticatedCreate = await jsonRequest("/submissions", {
     method: "POST",
@@ -132,9 +149,9 @@ try {
 
   const noAdminAudit = await jsonRequest("/audit");
   assert.equal(noAdminAudit.response.status, 401);
-  assert.equal(noAdminAudit.payload.error.code, "admin-token-required");
+  assert.equal(noAdminAudit.payload.error.code, "operator-session-required");
 
-  const adminAudit = await jsonRequest("/audit", { admin: adminToken });
+  const adminAudit = await jsonRequest("/audit", { token: operatorToken });
   assert.equal(adminAudit.response.status, 200);
   assert.ok(Array.isArray(adminAudit.payload.auditLog));
 

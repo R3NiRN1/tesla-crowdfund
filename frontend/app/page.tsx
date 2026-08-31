@@ -17,6 +17,7 @@ import { erc20Abi } from "@/lib/erc20Abi";
 import { ZERO_ADDRESS } from "@/lib/publicConfig";
 import {
   CAMPAIGN_STATE_LABELS,
+  EXPECTED_CAMPAIGN_VERSION,
   MILESTONE_STATUS_LABELS,
   readCampaign,
   type CampaignView,
@@ -202,7 +203,9 @@ export default function Home() {
         : null;
 
   const contractMismatchReason = selectedView?.kind === "chain" && tokenAddress && factoryArbitrator
-    ? selectedView.data.token.toLowerCase() !== tokenAddress.toLowerCase()
+    ? selectedView.data.contractVersion !== EXPECTED_CAMPAIGN_VERSION
+      ? `Campaign version ${selectedView.data.contractVersion || "missing"} is not ${EXPECTED_CAMPAIGN_VERSION}. Writes are disabled.`
+      : selectedView.data.token.toLowerCase() !== tokenAddress.toLowerCase()
       ? "Campaign token does not match the configured V2 factory token. Writes are disabled."
       : selectedView.data.arbitrator.toLowerCase() !== factoryArbitrator.toLowerCase()
         ? "Campaign arbitrator does not match the configured V2 factory arbitrator. Writes are disabled."
@@ -319,7 +322,7 @@ export default function Home() {
                     <div className="trust-grid" style={{ marginTop: 12 }}>
                       <div className="trust-note"><strong>Lifecycle</strong><span>{lifecycleCopy(selectedView.data)}</span></div>
                       <div className="trust-note"><strong>Hard cap</strong><span>CampaignV2 can accept no more than the exact goal; excess requested in the final contribution stays in the wallet.</span></div>
-                      <div className="trust-note"><strong>Contract match</strong><span>{selectedView.kind === "demo" ? "Demo data only." : contractMismatchReason ?? "Campaign token and arbitrator match the configured V2 factory."}</span></div>
+                      <div className="trust-note"><strong>Contract match</strong><span>{selectedView.kind === "demo" ? "Demo data only." : contractMismatchReason ?? `Campaign version ${EXPECTED_CAMPAIGN_VERSION}, token and arbitrator match the configured V2 factory.`}</span></div>
                     </div>
 
                     {selectedView.kind === "chain" && tokenAddress ? (

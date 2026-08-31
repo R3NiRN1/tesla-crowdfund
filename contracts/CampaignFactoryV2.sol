@@ -28,12 +28,14 @@ contract CampaignFactoryV2 {
     );
 
     error ZeroAddress();
+    error TokenHasNoCode();
     error InvalidAmount();
     error InvalidDuration();
     error InvalidMilestones();
 
     constructor(address token_, address arbitrator_) {
         if (token_ == address(0) || arbitrator_ == address(0)) revert ZeroAddress();
+        if (token_.code.length == 0) revert TokenHasNoCode();
         token = token_;
         arbitrator = arbitrator_;
     }
