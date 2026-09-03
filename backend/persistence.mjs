@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export const STORE_VERSION = 1;
+export const STORE_VERSION = 2;
 export const BACKUP_SCHEMA = "tes-crowdfund-backend-backup/v1";
 
 const DEFAULT_DATA_DIR = path.join(process.cwd(), "backend", "data");
@@ -16,6 +16,10 @@ export function emptyStore() {
     version: STORE_VERSION,
     submissions: [],
     nonces: [],
+    walletSessions: [],
+    operators: [],
+    operatorCredentials: [],
+    operatorSessions: [],
     auditLog: [],
   };
 }
@@ -26,6 +30,10 @@ export function normalizeStore(store = {}) {
     version: STORE_VERSION,
     submissions: Array.isArray(source.submissions) ? source.submissions : [],
     nonces: Array.isArray(source.nonces) ? source.nonces : [],
+    walletSessions: Array.isArray(source.walletSessions) ? source.walletSessions : [],
+    operators: Array.isArray(source.operators) ? source.operators : [],
+    operatorCredentials: Array.isArray(source.operatorCredentials) ? source.operatorCredentials : [],
+    operatorSessions: Array.isArray(source.operatorSessions) ? source.operatorSessions : [],
     auditLog: Array.isArray(source.auditLog) ? source.auditLog : [],
   };
 }
@@ -69,6 +77,8 @@ export function summarizeStore(store = {}) {
     mediaReferences,
     creatorUpdates,
     nonces: normalized.nonces.length,
+    walletSessions: normalized.walletSessions.length,
+    operators: normalized.operators.length,
     auditEvents: normalized.auditLog.length,
   };
 }
@@ -100,9 +110,10 @@ export function validateStoreSnapshot(store = {}) {
 export function safeConfigSnapshot(env = process.env) {
   return {
     nodeEnv: env.NODE_ENV || "development",
-    backendDbConfigured: Boolean(env.TESLA_CROWDFUND_BACKEND_DB),
+    backendDbConfigured: Boolean(env.TESLA_CROWDFUND_BACKEND_DB || env.DATABASE_URL),
+    storageDriver: env.STORAGE_DRIVER || (env.DATABASE_URL ? "postgres" : "file"),
     corsOrigin: env.CORS_ORIGIN || "*",
-    adminTokenConfigured: Boolean(env.ADMIN_TOKEN),
+    operatorAuthConfigured: Boolean(env.DATABASE_URL || env.TESLA_CROWDFUND_BACKEND_DB),
   };
 }
 

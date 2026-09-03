@@ -21,14 +21,15 @@ export type BackendSubmission = {
   review?: {
     decision: "needs_changes" | "approved" | "rejected";
     note: string;
-    reviewerAddress: string;
+    reviewerOperatorId: string;
+    reviewerSubject: string;
     reviewedAt: string;
-    alphaAdminBypass: boolean;
   } | null;
   verification?: {
     state: "unverified" | "manually_verified";
     note: string;
-    reviewerAddress: string;
+    reviewerOperatorId: string;
+    reviewerSubject: string;
     verifiedAt: string | null;
   } | null;
   publish?: {
@@ -38,6 +39,13 @@ export type BackendSubmission = {
     chainId: number;
     metadataURI: string;
     publisherAddress: string;
+    tokenAddress: string;
+    arbitratorAddress: string;
+    factoryVersion: string;
+    campaignVersion: string;
+    blockNumber: number;
+    confirmations: number;
+    verifiedOnChain: boolean;
     publishedAt: string;
   } | null;
   createdAt: string;
@@ -76,6 +84,7 @@ export type BackendAuditEntry = {
   id: string;
   action: string;
   detail: Record<string, unknown>;
+  actor?: { kind: "wallet" | "operator" | "system"; id: string | null };
   timestamp: string;
 };
 
@@ -89,8 +98,9 @@ export type BackendHealthStatus = {
   config: {
     production: boolean;
     corsOrigin: string;
-    adminTokenConfigured: boolean;
     storage: string;
+    durableStorage: boolean;
+    operatorAuthConfigured: boolean;
   };
   warnings: string[];
 };
@@ -105,6 +115,8 @@ export type BackendDiagnostics = {
     submissions: Record<BackendSubmission["status"], number>;
     auditEvents: number;
     authNonces: number;
+    walletSessions?: number;
+    activeOperators?: number;
   };
   recentAudit: BackendAuditEntry[];
 };
@@ -114,9 +126,14 @@ export type BackendModerationDecision = "needs_changes" | "approved" | "rejected
 export type BackendModerationInput = {
   decision: BackendModerationDecision;
   note: string;
-  reviewerAddress: string;
   manuallyVerified: boolean;
   verificationNote: string;
+};
+
+export type BackendOperatorSession = {
+  sessionToken: string;
+  expiresAt: string;
+  operator: { id: string; subject: string; displayName: string; roles: string[] };
 };
 
 export type BackendPublishInput = {
@@ -183,7 +200,58 @@ export type BackendAuthResult = {
   authenticated: true;
   address: string;
   authenticatedAt: string;
+  sessionToken: string;
+  expiresAt: string;
 };
+
+export type StoredBackendAuthSession = {
+  address: string;
+  sessionToken: string;
+  expiresAt: string;
+};
+
+const BACKEND_AUTH_SESSION_KEY = "teslastarter.backendWalletSession.v2";
+
+function browserSessionStorage() {
+  return typeof window === "undefined" ? null : window.sessionStorage;
+}
+
+export function clearBackendAuthSession() {
+  browserSessionStorage()?.removeItem(BACKEND_AUTH_SESSION_KEY);
+}
+
+export function getBackendAuthSession(address?: string | null): StoredBackendAuthSession | null {
+  const storage = browserSessionStorage();
+  if (!storage) return null;
+  const raw = storage.getItem(BACKEND_AUTH_SESSION_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as StoredBackendAuthSession;
+    if (!parsed.address || !/^[a-fA-F0-9]{64}$/.test(parsed.sessionToken || "")) {
+      storage.removeItem(BACKEND_AUTH_SESSION_KEY);
+      return null;
+    }
+    if (!parsed.expiresAt || Date.parse(parsed.expiresAt) <= Date.now()) {
+      storage.removeItem(BACKEND_AUTH_SESSION_KEY);
+      return null;
+    }
+    if (address && parsed.address.toLowerCase() !== address.toLowerCase()) return null;
+    return parsed;
+  } catch {
+    storage.removeItem(BACKEND_AUTH_SESSION_KEY);
+    return null;
+  }
+}
+
+function storeBackendAuthSession(result: BackendAuthResult) {
+  const session: StoredBackendAuthSession = {
+    address: result.address,
+    sessionToken: result.sessionToken,
+    expiresAt: result.expiresAt,
+  };
+  browserSessionStorage()?.setItem(BACKEND_AUTH_SESSION_KEY, JSON.stringify(session));
+  return session;
+}
 
 function responseErrorCode(payload: ErrorResponse) {
   if (payload.error && typeof payload.error === "object" && payload.error.code) return payload.error.code;
@@ -199,7 +267,15 @@ function responseErrorMessage(payload: ErrorResponse, status: number) {
   return `Backend request failed with status ${status}.`;
 }
 
-async function requestSubmission(path: string, init: RequestInit): Promise<BackendSubmission> {
+function walletAuthorizationHeaders(): Record<string, string> {
+  const session = getBackendAuthSession();
+  if (!session) {
+    throw new BackendClientError(401, "wallet-session-required", "Authenticate the connected creator wallet before using private backend actions.");
+  }
+  return { authorization: `Bearer ${session.sessionToken}` };
+}
+
+async function requestSubmission(path: string, init: RequestInit, walletAuth = true): Promise<BackendSubmission> {
   const backendUrl = getBackendUrl();
   if (!backendUrl) {
     throw new BackendClientError(0, "backend-not-configured", "NEXT_PUBLIC_BACKEND_URL is not configured.");
@@ -209,12 +285,16 @@ async function requestSubmission(path: string, init: RequestInit): Promise<Backe
     ...init,
     headers: {
       "content-type": "application/json",
+      ...(walletAuth ? walletAuthorizationHeaders() : {}),
       ...init.headers,
     },
   });
   const payload = (await response.json().catch(() => ({}))) as SubmissionResponse & ErrorResponse;
 
   if (!response.ok || !payload.submission) {
+    if (response.status === 401 && ["wallet-session-invalid", "wallet-session-expired"].includes(responseErrorCode(payload))) {
+      clearBackendAuthSession();
+    }
     throw new BackendClientError(
       response.status,
       responseErrorCode(payload),
@@ -251,16 +331,43 @@ export function requestBackendAuthNonce(address: string): Promise<BackendAuthNon
   });
 }
 
-export function verifyBackendAuthSignature(
+export async function verifyBackendAuthSignature(
   address: string,
   nonce: string,
   signature: string,
 ): Promise<BackendAuthResult> {
-  return requestJson<BackendAuthResult>("/auth/verify", {
+  const result = await requestJson<BackendAuthResult>("/auth/verify", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ address, nonce, signature }),
   });
+  storeBackendAuthSession(result);
+  return result;
+}
+
+export async function ensureBackendAuthSession(
+  address: string,
+  signMessage: (message: string) => Promise<string>,
+): Promise<StoredBackendAuthSession> {
+  const existing = getBackendAuthSession(address);
+  if (existing) return existing;
+  const challenge = await requestBackendAuthNonce(address);
+  const signature = await signMessage(challenge.message);
+  const verified = await verifyBackendAuthSignature(address, challenge.nonce, signature);
+  return storeBackendAuthSession(verified);
+}
+
+export async function logoutBackendAuthSession(): Promise<void> {
+  const session = getBackendAuthSession();
+  if (!session) return;
+  try {
+    await requestJson<{ ok: true }>("/auth/logout", {
+      method: "POST",
+      headers: { authorization: `Bearer ${session.sessionToken}` },
+    });
+  } finally {
+    clearBackendAuthSession();
+  }
 }
 
 export function createBackendSubmission(input: BackendSubmissionInput): Promise<BackendSubmission> {
@@ -288,32 +395,54 @@ export function getBackendHealth(): Promise<BackendHealthStatus> {
   return requestJson<BackendHealthStatus>("/health");
 }
 
-export function getBackendDiagnostics(adminToken: string): Promise<{ diagnostics: BackendDiagnostics; admin: { alphaBypass: boolean; note?: string } }> {
-  return requestJson<{ diagnostics: BackendDiagnostics; admin: { alphaBypass: boolean; note?: string } }>("/admin/diagnostics", {
-    headers: adminToken ? { "x-admin-token": adminToken } : {},
+function operatorAuthorizationHeaders(sessionToken: string): Record<string, string> {
+  return sessionToken ? { authorization: `Bearer ${sessionToken}` } : {};
+}
+
+export function authenticateBackendOperator(credential: string): Promise<BackendOperatorSession> {
+  return requestJson<BackendOperatorSession>("/operator/auth", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ credential }),
   });
 }
 
-export async function listBackendSubmissions(): Promise<BackendSubmission[]> {
-  const payload = await requestJson<{ submissions: BackendSubmission[] }>("/submissions");
+export function getBackendDiagnostics(operatorSession: string): Promise<{ diagnostics: BackendDiagnostics; operator: BackendOperatorSession["operator"] }> {
+  return requestJson<{ diagnostics: BackendDiagnostics; operator: BackendOperatorSession["operator"] }>("/admin/diagnostics", {
+    headers: operatorAuthorizationHeaders(operatorSession),
+  });
+}
+
+export async function listBackendSubmissions(operatorSession?: string): Promise<BackendSubmission[]> {
+  if (operatorSession !== undefined) {
+    const payload = await requestJson<{ submissions: BackendSubmission[] }>("/admin/submissions", {
+      headers: operatorAuthorizationHeaders(operatorSession),
+    });
+    return payload.submissions;
+  }
+  const payload = await requestJson<{ submissions: BackendSubmission[] }>("/submissions", {
+    headers: walletAuthorizationHeaders(),
+  });
   return payload.submissions;
 }
 
-export async function listBackendAudit(): Promise<BackendAuditEntry[]> {
-  const payload = await requestJson<{ auditLog: BackendAuditEntry[] }>("/audit");
+export async function listBackendAudit(operatorSession = ""): Promise<BackendAuditEntry[]> {
+  const payload = await requestJson<{ auditLog: BackendAuditEntry[] }>("/audit", {
+    headers: operatorAuthorizationHeaders(operatorSession),
+  });
   return payload.auditLog;
 }
 
 export function moderateBackendSubmission(
   id: string,
   input: BackendModerationInput,
-  adminToken: string,
+  operatorSession: string,
 ): Promise<BackendSubmission> {
   return requestSubmission(`/admin/submissions/${encodeURIComponent(id)}/review`, {
     method: "POST",
-    headers: adminToken ? { "x-admin-token": adminToken } : {},
+    headers: operatorAuthorizationHeaders(operatorSession),
     body: JSON.stringify(input),
-  });
+  }, false);
 }
 
 export function recordBackendPublish(id: string, input: BackendPublishInput): Promise<BackendSubmission> {
@@ -347,6 +476,7 @@ export type BackendMetadataDocument = {
 export async function getBackendSubmissionMetadata(id: string): Promise<BackendMetadataDocument> {
   const payload = await requestJson<{ metadata: BackendMetadataDocument }>(
     `/submissions/${encodeURIComponent(id)}/metadata`,
+    { headers: walletAuthorizationHeaders() },
   );
   return payload.metadata;
 }

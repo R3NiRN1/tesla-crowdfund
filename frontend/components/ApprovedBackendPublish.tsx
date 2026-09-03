@@ -70,7 +70,7 @@ export default function ApprovedBackendPublish({
     }
     if (walletPending) reasons.push("Wallet confirmation is open.");
     if (receipt.isLoading) reasons.push("Transaction confirmation is pending.");
-    if (recording) reasons.push("Backend publish record is being saved.");
+    if (recording) reasons.push("Backend is independently verifying the transaction.");
     return reasons;
   }, [
     alreadyPublished,
@@ -95,11 +95,11 @@ export default function ApprovedBackendPublish({
     const metadataEvents = parseEventLogs({
       abi: campaignFactoryMetadataWriteAbi,
       logs: receipt.data.logs,
-      eventName: "CampaignCreatedWithMetadata",
+      eventName: "CampaignV2Created",
     });
     const campaignAddress = metadataEvents[0]?.args.campaign;
     if (!campaignAddress) {
-      setError("Transaction confirmed, but CampaignCreatedWithMetadata was not found. Backend was not updated.");
+      setError("Transaction confirmed, but CampaignV2Created was not found. Backend was not asked to publish it.");
       return;
     }
 
@@ -115,11 +115,11 @@ export default function ApprovedBackendPublish({
     })
       .then((updated) => {
         setRecordedHash(hash);
-        setMessage("Transaction confirmed and backend publish record saved.");
+        setMessage("Transaction independently verified on-chain and backend publish record saved.");
         onPublished(updated);
       })
       .catch((requestError) => {
-        setError(requestError instanceof BackendClientError ? requestError.message : "Backend publish record failed.");
+        setError(requestError instanceof BackendClientError ? requestError.message : "Backend chain verification failed.");
       })
       .finally(() => setRecording(false));
   }, [
@@ -166,7 +166,7 @@ export default function ApprovedBackendPublish({
       <div className="split-row">
         <div>
           <strong>Approved creator publish</strong>
-          <div className="small muted">Creator wallet calls createCampaignWithMetadata. The backend never signs or holds funds.</div>
+          <div className="small muted">Creator wallet calls CampaignFactoryV2. The backend independently verifies the resulting chain evidence before recording publication.</div>
         </div>
         <span className={`badge ${alreadyPublished || recordedHash ? "badge-success" : "badge-muted"}`}>
           {alreadyPublished || recordedHash ? "published" : receipt.isLoading ? "confirming" : walletPending ? "wallet confirmation" : "ready"}
@@ -176,11 +176,11 @@ export default function ApprovedBackendPublish({
       <div className="trust-grid" style={{ marginTop: 12 }}>
         <div className="trust-note">
           <strong>Publish steps</strong>
-          <span>Confirm the approved creator wallet, send createCampaignWithMetadata, then wait for the backend publish record.</span>
+          <span>Confirm the approved creator wallet, send createCampaignWithMetadata, then wait while the backend independently verifies the BSC transaction.</span>
         </div>
         <div className="trust-note">
-          <strong>Wallet boundary</strong>
-          <span>The backend approves and records the result, but the creator wallet signs the transaction and pays gas.</span>
+          <strong>Verification boundary</strong>
+          <span>The browser may display transaction details, but backend publication authority comes from its own configured RPC, V2 factory, token and arbitrator checks.</span>
         </div>
         <div className="trust-note">
           <strong>Creator consent</strong>
@@ -219,7 +219,7 @@ export default function ApprovedBackendPublish({
       )}
       {submission.publish && (
         <div className="panel-success" style={{ marginTop: 10 }}>
-          Backend record: campaign {short(submission.publish.campaignAddress)}, transaction {short(submission.publish.transactionHash)}.
+          Verified backend record: campaign {short(submission.publish.campaignAddress)}, transaction {short(submission.publish.transactionHash)}.
         </div>
       )}
       {message && <div className="panel-success" style={{ marginTop: 10 }}>{message}</div>}

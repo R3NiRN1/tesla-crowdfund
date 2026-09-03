@@ -6,8 +6,6 @@ import { injected } from "wagmi/connectors";
 import { type Transport } from "viem";
 import { bsc, bscTestnet } from "wagmi/chains";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { RainbowKitProvider, getDefaultConfig } from "@rainbow-me/rainbowkit";
-import "@rainbow-me/rainbowkit/styles.css";
 import { usePublicConfig } from "@/lib/usePublicConfig";
 
 export default function Providers({ children }: { children: React.ReactNode }) {
@@ -31,16 +29,6 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       ),
     } satisfies Record<56 | 97, Transport>;
 
-    if (publicConfig.wcEnabled && publicConfig.wcProjectId) {
-      return getDefaultConfig({
-        appName: "TES Crowdfund",
-        projectId: publicConfig.wcProjectId,
-        chains: [bsc, bscTestnet],
-        transports,
-        ssr: false,
-      });
-    }
-
     return createConfig({
       chains: [bsc, bscTestnet],
       connectors: [injected()],
@@ -57,9 +45,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <WagmiProvider config={config}>
-      <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider>{children}</RainbowKitProvider>
-      </QueryClientProvider>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     </WagmiProvider>
   );
 }

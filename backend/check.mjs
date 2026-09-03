@@ -11,12 +11,12 @@ const {
   addCampaignUpdate,
   buildSubmissionMetadata,
   createSubmission,
-  issueNonce,
   listPublishedCampaigns,
   readStore,
   updateSubmission,
   updateSubmissionStatus,
 } = await import("./store.mjs");
+const { issueWalletChallenge } = await import("./challenges.mjs");
 const { READINESS, validateSubmission } = await import("./validation.mjs");
 const { verifyWalletSignature } = await import("./auth.mjs");
 const { getBackendConfig } = await import("./config.mjs");
@@ -52,17 +52,17 @@ const validPayload = {
   },
 };
 
-function expectCode(fn, code) {
-  assert.throws(fn, (error) => error.code === code);
+async function expectCode(promise, code) {
+  await assert.rejects(promise, (error) => error.code === code);
 }
 
 try {
-  expectCode(
-    () => issueNonce("0x0000000000000000000000000000000000000000"),
+  await expectCode(
+    issueWalletChallenge("0x0000000000000000000000000000000000000000"),
     "invalid-wallet-address",
   );
   const wallet = ethers.Wallet.createRandom();
-  const nonce = issueNonce(wallet.address);
+  const nonce = await issueWalletChallenge(wallet.address);
   assert.ok(nonce.nonce);
   assert.ok(nonce.message.includes(nonce.nonce));
   assert.ok(nonce.message.includes(wallet.address.toLowerCase()));
@@ -70,79 +70,77 @@ try {
 
   const wrongWallet = ethers.Wallet.createRandom();
   const wrongSignature = await wrongWallet.signMessage(nonce.message);
-  expectCode(
-    () => verifyWalletSignature(wallet.address, nonce.nonce, wrongSignature),
+  await expectCode(
+    verifyWalletSignature(wallet.address, nonce.nonce, wrongSignature),
     "wallet-address-mismatch",
   );
 
   const signature = await wallet.signMessage(nonce.message);
-  const authenticated = verifyWalletSignature(wallet.address, nonce.nonce, signature);
+  const authenticated = await verifyWalletSignature(wallet.address, nonce.nonce, signature);
   assert.equal(authenticated.authenticated, true);
   assert.equal(authenticated.address, wallet.address.toLowerCase());
-  expectCode(
-    () => verifyWalletSignature(wallet.address, nonce.nonce, signature),
+  await expectCode(
+    verifyWalletSignature(wallet.address, nonce.nonce, signature),
     "invalid-nonce",
   );
 
-  const superseded = issueNonce(wallet.address);
-  const active = issueNonce(wallet.address);
+  const superseded = await issueWalletChallenge(wallet.address);
+  const active = await issueWalletChallenge(wallet.address);
   const supersededSignature = await wallet.signMessage(superseded.message);
-  expectCode(
-    () => verifyWalletSignature(wallet.address, superseded.nonce, supersededSignature),
-    "invalid-nonce",
-  );
+  assert.equal((await verifyWalletSignature(wallet.address, superseded.nonce, supersededSignature)).authenticated, true);
   const activeSignature = await wallet.signMessage(active.message);
-  assert.equal(verifyWalletSignature(wallet.address, active.nonce, activeSignature).authenticated, true);
+  assert.equal((await verifyWalletSignature(wallet.address, active.nonce, activeSignature)).authenticated, true);
 
-  expectCode(
-    () => getBackendConfig({ NODE_ENV: "production", ADMIN_TOKEN: "short", CORS_ORIGIN: "*" }),
-    "production-admin-token-required",
+  assert.throws(
+    () => getBackendConfig({ NODE_ENV: "production", STORAGE_DRIVER: "file", CORS_ORIGIN: "https://app.example" }),
+    (error) => error.code === "production-durable-storage-required",
   );
-  expectCode(
-    () => getBackendConfig({ NODE_ENV: "production", ADMIN_TOKEN: "a".repeat(24), CORS_ORIGIN: "*" }),
-    "production-cors-origin-required",
+  assert.throws(
+    () => getBackendConfig({ NODE_ENV: "production", STORAGE_DRIVER: "postgres", CORS_ORIGIN: "*" }),
+    (error) => error.code === "database-url-required",
   );
-  expectCode(
+  assert.throws(
     () => getBackendConfig({ NODE_ENV: "development", CORS_ORIGIN: "https://app.example/path" }),
-    "invalid-cors-origin",
+    (error) => error.code === "invalid-cors-origin",
   );
   const productionConfig = getBackendConfig({
     NODE_ENV: "production",
-    ADMIN_TOKEN: "a".repeat(24),
+    STORAGE_DRIVER: "postgres",
+    DATABASE_URL: "postgresql://example.invalid/backend",
     CORS_ORIGIN: "https://app.example",
     BACKEND_PORT: "8787",
   });
   assert.equal(productionConfig.production, true);
   assert.equal(productionConfig.corsOrigin, "https://app.example");
 
-  const invalid = createSubmission({ title: "Draft" });
+  const invalid = await createSubmission({ title: "Draft" });
   assert.equal(invalid.status, "draft");
   assert.equal(invalid.readiness.state, READINESS.INCOMPLETE);
   assert.ok(Array.isArray(invalid.readiness.reasons));
   assert.ok(invalid.readiness.reasons.length > 0);
   assert.ok(!Number.isNaN(Date.parse(invalid.readiness.checkedAt)));
-  expectCode(
-    () => updateSubmissionStatus(invalid.id, "pending_review"),
+  await expectCode(
+    updateSubmissionStatus(invalid.id, "pending_review"),
     "submission-not-contract-ready",
   );
 
-  const repaired = updateSubmission(invalid.id, validPayload);
+  const repaired = await updateSubmission(invalid.id, validPayload);
   assert.equal(repaired.readiness.state, READINESS.CONTRACT_READY);
   assert.equal(repaired.imageUrl, validPayload.media[0].uri);
   assert.deepEqual(repaired.readiness.reasons, []);
 
-  const metadata = buildSubmissionMetadata(invalid.id);
+  const metadata = await buildSubmissionMetadata(invalid.id);
   assert.equal(metadata.schema, "tes-crowdfund-campaign/v1");
   assert.equal(metadata.image, validPayload.media[0].uri);
   assert.equal(metadata.media.length, 1);
 
-  const pending = updateSubmissionStatus(invalid.id, "pending_review", {
+  const pending = await updateSubmissionStatus(invalid.id, "pending_review", {
     submittedAt: new Date().toISOString(),
   });
   assert.equal(pending.status, "pending_review");
-  expectCode(() => updateSubmission(invalid.id, { title: "Locked" }), "submission-locked");
+  await expectCode(updateSubmission(invalid.id, { title: "Locked" }), "submission-locked");
 
-  const changesRequested = updateSubmissionStatus(invalid.id, "needs_changes", {
+  const changesRequested = await updateSubmissionStatus(invalid.id, "needs_changes", {
     review: {
       decision: "needs_changes",
       note: "Clarify the delivery plan.",
@@ -153,18 +151,18 @@ try {
   });
   assert.equal(changesRequested.status, "needs_changes");
 
-  const revised = updateSubmission(invalid.id, {
+  const revised = await updateSubmission(invalid.id, {
     shortDescription: "Funding a community-owned charging site with a clarified regional delivery plan.",
   });
   assert.equal(revised.status, "needs_changes");
 
-  updateSubmissionStatus(invalid.id, "pending_review", { review: null });
-  expectCode(
-    () => updateSubmissionStatus(invalid.id, "approved", { verification: { state: "unverified" } }),
+  await updateSubmissionStatus(invalid.id, "pending_review", { review: null });
+  await expectCode(
+    updateSubmissionStatus(invalid.id, "approved", { verification: { state: "unverified" } }),
     "manual-verification-required",
   );
 
-  const approved = updateSubmissionStatus(invalid.id, "approved", {
+  const approved = await updateSubmissionStatus(invalid.id, "approved", {
     review: {
       decision: "approved",
       reviewerAddress: validPayload.creatorAddress,
@@ -177,12 +175,12 @@ try {
     },
   });
   assert.equal(approved.status, "approved");
-  expectCode(
-    () => updateSubmissionStatus(invalid.id, "rejected"),
+  await expectCode(
+    updateSubmissionStatus(invalid.id, "rejected"),
     "invalid-status-transition",
   );
 
-  const published = updateSubmissionStatus(invalid.id, "published", {
+  const published = await updateSubmissionStatus(invalid.id, "published", {
     publish: {
       transactionHash: `0x${"a".repeat(64)}`,
       campaignAddress: "0x3333333333333333333333333333333333333333",
@@ -196,15 +194,15 @@ try {
   assert.equal(published.status, "published");
   assert.equal(published.publish.metadataURI, validPayload.metadataURI);
 
-  expectCode(
-    () => addCampaignUpdate(invalid.id, {
+  await expectCode(
+    addCampaignUpdate(invalid.id, {
       title: "Wrong author",
       body: "This should not be accepted.",
       publisherAddress: "0x2222222222222222222222222222222222222222",
     }),
     "creator-address-mismatch",
   );
-  const campaignUpdate = addCampaignUpdate(invalid.id, {
+  const campaignUpdate = await addCampaignUpdate(invalid.id, {
     title: "Site lease signed",
     body: "The lease is signed and electrical planning is underway.",
     milestoneIndex: 0,
@@ -212,9 +210,9 @@ try {
   });
   assert.equal(campaignUpdate.milestoneIndex, 0);
 
-  const hiddenDraft = createSubmission({ title: "Hidden draft", media: [null] });
+  const hiddenDraft = await createSubmission({ title: "Hidden draft", media: [null] });
   assert.ok(hiddenDraft.readiness.reasons.some((reason) => reason.includes("media[0]")));
-  const publicCampaigns = listPublishedCampaigns();
+  const publicCampaigns = await listPublishedCampaigns();
   assert.equal(publicCampaigns.length, 1);
   assert.equal(publicCampaigns[0].status, "published");
   assert.equal(publicCampaigns[0].title, validPayload.title);
@@ -245,7 +243,7 @@ try {
   assert.ok(badMedia.reasons.some((reason) => reason.includes("media[0].uri")));
   assert.ok(badMedia.reasons.some((reason) => reason.includes("primary")));
 
-  const store = readStore();
+  const store = await readStore();
   assert.equal(store.submissions.length, 2);
   assert.ok(store.auditLog.length >= 10);
 

@@ -53,7 +53,7 @@ published -> terminal
 
 - Persistence is file-backed JSON in `backend/data`.
 - Backup, restore, and store validation scripts exist for launch rehearsal, but this is still not durable production storage.
-- `ADMIN_TOKEN` is optional only in local alpha mode. Production startup requires at least 24 characters.
+- Creator wallet sessions and named operator sessions are separate. Production requires PostgreSQL plus an active operator; see `docs/BACKEND_PERSISTENCE.md` and `docs/OPERATOR_AUTH.md`.
 - Production startup also requires an explicit `CORS_ORIGIN`; wildcard CORS is rejected.
 - Admin verification is a manual V1 record, not third-party KYC.
 - Signed wallet authentication proves control of an address, but creator mutations are not yet session-authorized.
@@ -95,7 +95,7 @@ BACKEND_PORT=8790 npm run backend:dev
 Set an admin token:
 
 ```bash
-ADMIN_TOKEN=change-me npm run backend:dev
+STORAGE_DRIVER=file npm run backend:dev
 ```
 
 Then call admin routes with:
@@ -107,7 +107,7 @@ x-admin-token: change-me
 Production guardrails:
 
 ```bash
-NODE_ENV=production ADMIN_TOKEN=use-a-long-random-secret CORS_ORIGIN=https://app.example npm run backend:dev
+NODE_ENV=production STORAGE_DRIVER=postgres DATABASE_URL=postgresql://... CORS_ORIGIN=https://app.example npm run backend:dev
 ```
 
 `POST /auth/nonce` returns the exact message and expiry to sign. Send the address, nonce, and resulting EIP-191 signature to `POST /auth/verify`. Failed signatures do not consume the nonce; successful verification consumes it and replay attempts fail.

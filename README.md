@@ -10,7 +10,7 @@ It is built for the TeslaCoin ERC-20 compatible token on BSC. The repository is 
 
 - **Hardhat** — smart contracts, scripts, and tests (BSC testnet + mainnet)
 - **Next.js** — frontend application (`/frontend`)
-- **TeslaCoin ERC-20** — the only supported token
+- **TeslaCoin ERC-20/BEP-20** — the native/default asset; V2 remains compatible with suitable ERC-20/BEP-20 tokens
 
 This repo is structured for local development and testing. Secret files are excluded by repository ignore rules, but operators remain responsible for secret scanning and credential handling.
 
@@ -185,7 +185,7 @@ Routes added for the new UX:
 - `/campaigns/new` (campaign draft builder)
 - `/admin` (local admin dashboard)
 
-**Admin dashboard security:** backend admin writes support `ADMIN_TOKEN`. Local alpha mode permits an explicit bypass when it is unset; production mode refuses to start without a strong token and explicit CORS origin. Manual review is not production KYC.
+**Admin dashboard security:** creator wallet sessions and operator authorization are separate. Admin routes require a short-lived session for a named, server-provisioned operator with explicit roles; reviewer identity is never accepted from request JSON. Production also requires PostgreSQL durable storage and explicit CORS. See [operator authorization](docs/OPERATOR_AUTH.md) and [backend persistence](docs/BACKEND_PERSISTENCE.md). Manual review is not production KYC.
 
 ---
 
@@ -221,12 +221,12 @@ Run the full local gate before a release candidate:
 npm run verify:mvp
 ```
 
-This verifies backend state/auth checks, contract compilation, contract metadata tests, environment preflight, frontend lint, and the production frontend build. Passing it means the repository is internally consistent; it does not make the file-backed backend production-ready.
+This verifies backend state/auth checks, contract compilation, contract metadata tests, environment preflight, frontend lint, and the production frontend build. Passing it means the repository is internally consistent; production still requires the PostgreSQL adapter, applied migrations, an active review operator, and hosting-specific operational controls.
 
 Mainnet remains blocked until all of the following are separately complete:
 
-- Replace file-backed backend persistence with durable, backed-up storage.
-- Enforce signed wallet sessions on creator mutations and audited role-based admin authorization.
+- Configure, migrate, back up and restore-test provider-neutral PostgreSQL storage.
+- Provision, rotate and monitor named operator credentials through production secret infrastructure.
 - Complete independent smart-contract security review and remediation.
 - Configure monitored production RPC, HTTPS, explicit CORS, secrets management, rate limiting, logging, and incident response.
 - Run testnet soak testing for contribution, milestone, refund, moderation, metadata, and recovery paths.

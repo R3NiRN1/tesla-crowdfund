@@ -109,7 +109,7 @@ if (liveTestnet) {
   if (!isAddress(env.NEXT_PUBLIC_FACTORY_ADDRESS)) errors.push("NEXT_PUBLIC_FACTORY_ADDRESS must be a deployed non-zero address.");
   if (!isAddress(env.NEXT_PUBLIC_TOKEN_ADDRESS)) errors.push("NEXT_PUBLIC_TOKEN_ADDRESS must be a deployed non-zero address.");
   if (!isHttpUrl(env.BSC_TESTNET_RPC_URL)) errors.push("BSC_TESTNET_RPC_URL must be configured for deployment and smoke checks.");
-  if (!env.ADMIN_TOKEN || env.ADMIN_TOKEN.length < 24) errors.push("ADMIN_TOKEN must be at least 24 characters for live rehearsal.");
+  if (env.STORAGE_DRIVER !== "postgres" || !env.DATABASE_URL) errors.push("Live rehearsal requires STORAGE_DRIVER=postgres and DATABASE_URL.");
   if (!isHttpUrl(env.CORS_ORIGIN) || env.CORS_ORIGIN === "*") errors.push("CORS_ORIGIN must pin the frontend origin for live rehearsal.");
   if (!env.DEPLOYER_PRIVATE_KEY) warnings.push("DEPLOYER_PRIVATE_KEY is not visible; deploy:testnet will need it in the operator environment.");
 } else {
