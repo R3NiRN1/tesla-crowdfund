@@ -28,6 +28,18 @@ CampaignV2 and CampaignFactoryV2 are nevertheless token-generic and should work 
 
 Any future atomic swap flow from another BSC asset into TES belongs in a separate application/router integration. It must receive a separate security review for allowances, slippage, router trust, MEV, price manipulation and atomicity.
 
+### Alternative-asset funding: convert through TES, not alongside it
+
+Teslastarter's escrow and milestone voting asset is TES. A future backer who arrives
+with another supported BSC asset may be offered a separately reviewed conversion route
+that converts that asset into TES before the contribution reaches campaign escrow.
+Alternative assets must not be accepted as parallel campaign-escrow assets.
+
+This keeps TES as the platform's economic rail while avoiding an arbitrary extra
+holder-only gate. The conversion mechanism, supported assets, fees, liquidity sources,
+slippage limits, approvals and any creator or backer TES-staking rules remain undecided
+and require a separate architecture and security decision before implementation.
+
 ### Milestones: real sequential escrow gates
 
 Milestones are real sequential gates rather than labels on creator-controlled withdrawals.
