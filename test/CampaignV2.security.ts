@@ -205,6 +205,29 @@ describe("CampaignV2 security invariants", function () {
     assert.equal((await token.balanceOf(creator.address)).toString(), ethers.utils.parseEther("40").toString());
   });
 
+  it("rounds the 10% challenge threshold up without overflowing at uint256 boundaries", async function () {
+    const cases = [
+      ethers.BigNumber.from(1),
+      ethers.BigNumber.from(9_999),
+      ethers.BigNumber.from(10_000),
+      ethers.BigNumber.from(10_001),
+      ethers.constants.MaxUint256,
+    ];
+
+    for (const total of cases) {
+      const { deployer, backerA, token, campaign } = await deployV2({
+        goalUnits: total.toString(),
+        milestoneAmountUnits: [total.toString()],
+      });
+
+      assert.equal((await campaign.challengeThresholdWeight()).toString(), "0");
+      await fundUnits(token, campaign, deployer, backerA, total);
+
+      const expected = total.mul(1_000).add(9_999).div(10_000);
+      assert.equal((await campaign.challengeThresholdWeight()).toString(), expected.toString());
+    }
+  });
+
   it("turns a rejected later milestone into pro-rata refunds of all unreleased escrow", async function () {
     const { deployer, creator, arbitrator, backerA, backerB, outsider, token, campaign } = await deployV2();
     await fund(token, campaign, deployer, backerA, "33");

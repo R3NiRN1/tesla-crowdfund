@@ -47,12 +47,36 @@ and a passing Dependency Review check at the exact final commit.
 
 ## Finding register
 
-Populate this table from the first exact-head run. Do not create suppressions before
-the underlying output is available.
+The entries below are tied to exact-head evidence. A disposition is not a release-risk
+acceptance, and unresolved review threads remain for human review.
 
 | Date | Release commit | Tool/rule or advisory | Severity | Source location/dependency path | Disposition | Evidence and owner | Review/expiry |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| _pending exact-head run_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| 2026-09-08 | `eb4fde7bbd1d4311e2965c314ed7b33cffaec8d7` | Slither `incorrect-exp` | High | `node_modules/@openzeppelin/contracts/utils/math/Math.sol:257` | False positive in third-party OpenZeppelin 5.4.0 code. Solidity `^` is intentional XOR used to seed the modular inverse in `mulDiv`; the adjacent source documents the Newton-Raphson/Hensel-lifting algorithm. The exact vendor file is filtered; no detector or dependency tree is excluded. | Security Gates run 8, job `Solidity static analysis`; source inspection. No risk owner required for a false-positive disposition. | Re-review whenever OpenZeppelin or Slither changes. |
+| 2026-09-08 | `eb4fde7bbd1d4311e2965c314ed7b33cffaec8d7` | Slither `divide-before-multiply` | Medium | `contracts/CampaignV2.sol:500-504` | Replaced with full-precision `Math.mulDiv(..., Math.Rounding.Ceil)` without changing the approved 10% threshold. Boundary tests cover zero-before-funding, `1`, `BPS-1`, `BPS`, `BPS+1`, and `type(uint256).max`. | Exact-head Slither output plus `CampaignV2.security.ts`. | Re-run Slither and contract tests on the changed head. |
+| 2026-09-08 | `eb4fde7bbd1d4311e2965c314ed7b33cffaec8d7` | Slither `uninitialized-local` | Medium | `contracts/CampaignV2.sol:185` | Solidity integer locals are zero-initialised, so no exploitable defect was present; changed to explicit `= 0` for unambiguous scanner evidence. Historical V1 remains unchanged. | Exact-head Slither output and Solidity semantics. | Re-run Slither on the changed head. |
+| 2026-09-08 | `eb4fde7bbd1d4311e2965c314ed7b33cffaec8d7` | Slither `incorrect-equality` | Medium | `contracts/CampaignV2.sol:484` | False positive. `amount == 0` is an internal zero-transfer guard, not a balance, price, timestamp, or authorization comparison. Zero refund shares must remain no-op safe under integer rounding. | Exact source plus refund-pool conservation tests. No risk owner required for a false-positive disposition. | Re-review if `_safeExactTransfer` inputs or refund rounding change. |
+| 2026-09-08 | `eb4fde7bbd1d4311e2965c314ed7b33cffaec8d7` | Slither `timestamp` | Low | `contracts/CampaignV2.sol` deadline/review/dispute/submission comparisons | Intended protocol mechanism. Timestamp comparisons enforce immutable 7-day, 14-day, and 30-day windows; normal miner/validator timestamp latitude is not material to those durations. | Exact source, adversarial deadline tests, and `BSC_TESTNET_RUNBOOK.md`. | Independent contract reviewer must confirm before mainnet. |
+| 2026-09-08 | `6060b65cd7f7167a7a5cdb71af9a8fed4d674e67` | CodeQL `DOM text reinterpreted as HTML` | Severity not exposed in PR thread | `frontend/app/page.tsx:52` | Unresolved review thread. JSX renders `short(address)` as a React text child; no HTML parser or `dangerouslySetInnerHTML` sink is invoked. Explorer URL validation remains a separate URL-scheme concern. | Security Gates run 10 CodeQL job passed, but the GitHub Advanced Security CodeQL check/review thread must be treated separately. | Human security-thread review required; do not auto-resolve. |
+| 2026-09-08 | `6060b65cd7f7167a7a5cdb71af9a8fed4d674e67` | npm audit `GHSA-c83g-rgw3-j3cx`, `GHSA-73wf-gq98-2v4g`, `GHSA-p498-v437-472g` | High / Moderate | `eslint-config-next -> eslint-plugin-react-hooks -> @babel/core -> @babel/helper-compilation-targets -> browserslist`; `eslint -> @humanfs/node` | Fixed with npm-generated compatible lockfile updates: Browserslist 4.28.9 and `@humanfs/node` 0.16.8. | Clean npm 10.8.2 install, zero-vulnerability frontend audit, lint, TypeScript, and production build. | Retain the audit gate. |
+| 2026-09-08 | `6060b65cd7f7167a7a5cdb71af9a8fed4d674e67` | Root npm audit | 7 High, 4 Moderate, 16 Low | Hardhat 2 / ethers 5 build, deployment, and test toolchain | Open blocker. A non-forced audit fix proposes zero compatible changes. Do not force overrides or combine a Hardhat/ethers migration with unrelated remediation. | Current root `npm audit --package-lock-only --json`; no human acceptance recorded. | Separate controlled toolchain decision required. |
+
+## Narrow vendor finding filter
+
+`slither.config.json` filters only the exact third-party file
+`node_modules/@openzeppelin/contracts/utils/math/Math.sol`. This prevents the verified
+`incorrect-exp` false positive from failing the High-severity gate while leaving all
+project contracts, V1, other OpenZeppelin files, and every Slither detector enabled.
+The filter must not be broadened without a new source-specific review.
+
+Pre-publish verification used Slither `0.11.6` over the working tree based on
+`6060b65cd7f7167a7a5cdb71af9a8fed4d674e67`, with the contract, test, and filter
+changes recorded above. The exact command was
+`/tmp/tes-slither-0116/bin/slither . --fail-high --sarif /tmp/tes-slither-static.sarif`;
+it exited `0`, and the SARIF SHA-256 was
+`7322cd07ceab83a8a36e10bf774633794d87fc6a693b3c49f05547bc91ab130e`.
+The GitHub Actions SARIF and digest at the published commit remain required release
+evidence.
 
 For every run, record the exact command, tool version, SARIF/report digest, and whether
 the scan covered the working tree, the pull-request diff, or Git history.

@@ -182,7 +182,7 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
         deadline = deadline_;
         state = CampaignState.Funding;
 
-        uint256 milestoneTotal;
+        uint256 milestoneTotal = 0;
         for (uint256 i = 0; i < milestoneDescriptions_.length; i++) {
             uint256 amount = milestoneAmounts_[i];
             if (amount == 0) revert InvalidAmount();
@@ -498,9 +498,7 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
     }
 
     function _thresholdWeight(uint256 total, uint256 thresholdBps) internal pure returns (uint256) {
-        uint256 whole = (total / BPS) * thresholdBps;
-        uint256 remainder = total % BPS;
-        return whole + (remainder * thresholdBps + BPS - 1) / BPS;
+        return Math.mulDiv(total, thresholdBps, BPS, Math.Rounding.Ceil);
     }
 
     function _meetsThreshold(
