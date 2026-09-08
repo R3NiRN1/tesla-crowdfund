@@ -29,7 +29,7 @@ This audit documents the LAUNCH-01 product flow review for issue #52. It maps th
 ## Admin Journey
 
 1. Admin opens `/admin`.
-2. Admin configures backend URL through env/runtime config and optionally supplies `ADMIN_TOKEN`.
+2. Operator configures the backend URL and exchanges a server-provisioned credential for a short-lived operator session.
 3. Admin refreshes backend submissions and audit log.
 4. Admin reviews submission readiness, creator address, metadata URI, review status, publish status, and manual verification status.
 5. Admin records moderation notes and verification notes.
@@ -38,7 +38,7 @@ This audit documents the LAUNCH-01 product flow review for issue #52. It maps th
 
 ### Admin Confusion Points
 
-- Admin auth is token-based alpha discipline, not role-based production authorization.
+- Operator authorization is server-side and role-based; the final hosting identity provider and credential-distribution policy remain a human deployment choice.
 - The page does not yet group queues by state or filter the audit log. This belongs to LAUNCH-05.
 - Empty, loading, and error states exist, but support diagnostics are limited. This belongs to LAUNCH-06.
 

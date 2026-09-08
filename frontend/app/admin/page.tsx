@@ -2,14 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useAccount } from "wagmi";
 
 import AlphaNavigation from "@/components/AlphaNavigation";
-import ConnectWallet from "@/components/ConnectWallet";
 import SetupBanner from "@/components/SetupBanner";
-import WalletBar from "@/components/WalletBar";
 import {
   BackendClientError,
+  authenticateBackendOperator,
   getBackendDiagnostics,
   getBackendHealth,
   getBackendUrl,
@@ -20,6 +18,7 @@ import {
   type BackendDiagnostics,
   type BackendHealthStatus,
   type BackendModerationDecision,
+  type BackendOperatorSession,
   type BackendSubmission,
 } from "@/lib/backendClient";
 
@@ -90,7 +89,6 @@ function formatTime(value?: string | null) {
 }
 
 export default function AdminPage() {
-  const { address, isConnected } = useAccount();
   const backendUrl = getBackendUrl();
   const [submissions, setSubmissions] = useState<BackendSubmission[]>([]);
   const [auditLog, setAuditLog] = useState<BackendAuditEntry[]>([]);
@@ -98,7 +96,8 @@ export default function AdminPage() {
   const [diagnostics, setDiagnostics] = useState<BackendDiagnostics | null>(null);
   const [diagnosticsMessage, setDiagnosticsMessage] = useState<string | null>(null);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
-  const [adminToken, setAdminToken] = useState("");
+  const [operatorCredential, setOperatorCredential] = useState("");
+  const [operatorSession, setOperatorSession] = useState<BackendOperatorSession | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [verificationNotes, setVerificationNotes] = useState<Record<string, string>>({});
   const [verified, setVerified] = useState<Record<string, boolean>>({});
@@ -116,8 +115,8 @@ export default function AdminPage() {
     setError(null);
     try {
       const [nextSubmissions, nextAudit, nextHealth] = await Promise.all([
-        listBackendSubmissions(),
-        listBackendAudit(),
+        operatorSession ? listBackendSubmissions(operatorSession.sessionToken) : Promise.resolve([]),
+        operatorSession ? listBackendAudit(operatorSession.sessionToken) : Promise.resolve([]),
         getBackendHealth(),
       ]);
       setSubmissions(nextSubmissions);
@@ -128,7 +127,7 @@ export default function AdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [backendUrl]);
+  }, [backendUrl, operatorSession]);
 
   useEffect(() => {
     void refresh();
@@ -175,14 +174,14 @@ export default function AdminPage() {
   const needsChanges = queueCounts.needs_changes;
 
   const loadDiagnostics = async () => {
-    if (!backendUrl) return;
+    if (!backendUrl || !operatorSession) return;
     setDiagnosticsLoading(true);
     setDiagnosticsMessage(null);
     setError(null);
     try {
-      const payload = await getBackendDiagnostics(adminToken.trim());
+      const payload = await getBackendDiagnostics(operatorSession.sessionToken);
       setDiagnostics(payload.diagnostics);
-      setDiagnosticsMessage(payload.admin.alphaBypass ? payload.admin.note ?? "Admin diagnostics loaded through local alpha bypass." : "Admin diagnostics loaded.");
+      setDiagnosticsMessage(`Operator diagnostics loaded for ${payload.operator.subject}.`);
     } catch (requestError) {
       setError(errorMessage(requestError));
     } finally {
@@ -190,8 +189,21 @@ export default function AdminPage() {
     }
   };
 
+  const authenticateOperator = async () => {
+    if (!backendUrl || !operatorCredential.trim()) return;
+    setError(null);
+    try {
+      const session = await authenticateBackendOperator(operatorCredential.trim());
+      setOperatorSession(session);
+      setOperatorCredential("");
+      setMessage(`Authenticated operator ${session.operator.subject}.`);
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+    }
+  };
+
   const moderate = async (submission: BackendSubmission, decision: BackendModerationDecision) => {
-    if (!address) return;
+    if (!operatorSession) return;
     setBusyId(submission.id);
     setMessage(null);
     setError(null);
@@ -201,11 +213,10 @@ export default function AdminPage() {
         {
           decision,
           note: notes[submission.id] ?? "",
-          reviewerAddress: address,
           manuallyVerified: verified[submission.id] === true,
           verificationNote: verificationNotes[submission.id] ?? "",
         },
-        adminToken.trim(),
+        operatorSession.sessionToken,
       );
       setMessage(`${submission.title || "Submission"} marked ${statusLabel(decision)}.`);
       await refresh();
@@ -226,8 +237,6 @@ export default function AdminPage() {
             <p>Review backend submissions, record manual verification, and write moderation decisions to the audit log.</p>
           </div>
           <div className="alpha-actions">
-            <WalletBar />
-            <ConnectWallet />
             <Link className="button-link" href="/">Dashboard</Link>
           </div>
         </header>
@@ -238,11 +247,11 @@ export default function AdminPage() {
         {!backendUrl && (
           <div className="panel-warning">Set NEXT_PUBLIC_BACKEND_URL to enable backend moderation.</div>
         )}
-        {backendUrl && !isConnected && (
-          <div className="panel-warning">Connect the reviewer wallet before taking moderation actions.</div>
+        {backendUrl && !operatorSession && (
+          <div className="panel-warning">Authenticate a named backend operator before reading or changing moderation state.</div>
         )}
         <div className="panel-warning">
-          Admin operations use backend submissions and audit events as launch truth. Browser state only holds the temporary admin token and unsent form text.
+          Creator wallet sessions cannot authorize operator actions. The browser holds only the short-lived operator session and unsent form text.
         </div>
 
         <section className="panel">
@@ -256,16 +265,22 @@ export default function AdminPage() {
             </button>
           </div>
           <label className="form-field" style={{ marginTop: 14 }}>
-            Admin token
+            Operator credential
             <input
               type="password"
-              value={adminToken}
-              onChange={(event) => setAdminToken(event.target.value)}
-              placeholder="Optional when backend ADMIN_TOKEN is unset"
+              value={operatorCredential}
+              onChange={(event) => setOperatorCredential(event.target.value)}
+              placeholder="credential-id.secret"
               autoComplete="off"
             />
-            <span className="small muted">Held in this page state only and sent as x-admin-token. Production launch must set ADMIN_TOKEN.</span>
+            <span className="small muted">Exchanged once for a short-lived operator session. Identity and roles are resolved server-side.</span>
           </label>
+          <div className="button-row" style={{ marginTop: 10 }}>
+            <button type="button" className="button-primary" onClick={() => void authenticateOperator()} disabled={!backendUrl || !operatorCredential.trim()}>
+              Authenticate operator
+            </button>
+            {operatorSession && <span className="small muted">Signed in as {operatorSession.operator.subject}</span>}
+          </div>
           {message && <div className="panel-success" style={{ marginTop: 14 }}>{message}</div>}
           {error && <div className="panel-danger" style={{ marginTop: 14 }}>{error}</div>}
         </section>
@@ -276,7 +291,7 @@ export default function AdminPage() {
               <h2>Backend health</h2>
               <p className="section-subtitle">Health and diagnostics make common launch failures visible without reading server logs.</p>
             </div>
-            <button type="button" className="button-secondary" onClick={() => void loadDiagnostics()} disabled={!backendUrl || diagnosticsLoading}>
+            <button type="button" className="button-secondary" onClick={() => void loadDiagnostics()} disabled={!backendUrl || !operatorSession || diagnosticsLoading}>
               {diagnosticsLoading ? "Loading diagnostics..." : "Load admin diagnostics"}
             </button>
           </div>
@@ -288,7 +303,8 @@ export default function AdminPage() {
                 <div className="detail-item"><strong>Started</strong>{formatTime(health.startedAt)}</div>
                 <div className="detail-item"><strong>Uptime</strong>{health.uptimeSeconds}s</div>
                 <div className="detail-item"><strong>Storage</strong>{health.config.storage}</div>
-                <div className="detail-item"><strong>Admin token</strong>{health.config.adminTokenConfigured ? "configured" : "not configured"}</div>
+                <div className="detail-item"><strong>Durable storage</strong>{health.config.durableStorage ? "configured" : "local only"}</div>
+                <div className="detail-item"><strong>Operator auth</strong>{health.config.operatorAuthConfigured ? "configured" : "not configured"}</div>
               </div>
               {health.warnings.length > 0 && (
                 <div className="panel-warning" style={{ marginTop: 12 }}>
@@ -396,7 +412,7 @@ export default function AdminPage() {
           ) : (
             <div className="draft-list" style={{ marginTop: 14 }}>
               {visibleSubmissions.map((submission) => {
-                const actionable = submission.status === "pending_review" && isConnected && busyId === null;
+                const actionable = submission.status === "pending_review" && Boolean(operatorSession) && busyId === null;
                 const manuallyVerified = verified[submission.id] === true;
                 const history = auditLog.filter((entry) => auditSubmissionId(entry) === submission.id);
                 const needsChangesHistory = history.filter((entry) => entry.action === "submission.needs_changes");
@@ -437,7 +453,7 @@ export default function AdminPage() {
                       <div className="detail-item"><strong>Creator</strong>{short(submission.creatorAddress)}</div>
                       <div className="detail-item"><strong>Metadata</strong>{submission.metadataURI || "not set"}</div>
                       <div className="detail-item"><strong>Review</strong>{submission.review?.decision ? statusLabel(submission.review.decision) : "not reviewed"}</div>
-                      <div className="detail-item"><strong>Reviewer</strong>{short(submission.review?.reviewerAddress)}</div>
+                      <div className="detail-item"><strong>Reviewer</strong>{submission.review?.reviewerSubject || "-"}</div>
                       <div className="detail-item"><strong>Updated</strong>{formatTime(submission.updatedAt)}</div>
                       <div className="detail-item"><strong>Publish</strong>{submission.publish ? short(submission.publish.transactionHash) : "not published"}</div>
                     </div>
@@ -476,7 +492,7 @@ export default function AdminPage() {
                             <div>
                               <strong>{statusLabel(detailString(entry, "reviewDecision") ?? "needs_changes")}</strong>
                               <div className="small muted">Previous state: {statusLabel(detailString(entry, "previousStatus") ?? "unknown")}</div>
-                              <div className="small muted">Reviewer: {short(detailString(entry, "reviewerAddress"))}</div>
+                              <div className="small muted">Operator: {entry.actor?.kind === "operator" ? short(entry.actor.id) : "-"}</div>
                             </div>
                             <span className="small muted">{formatTime(entry.timestamp)}</span>
                           </div>
@@ -492,6 +508,8 @@ export default function AdminPage() {
                           <div className="detail-item"><strong>Transaction</strong>{short(submission.publish.transactionHash)}</div>
                           <div className="detail-item"><strong>Factory</strong>{short(submission.publish.factoryAddress)}</div>
                           <div className="detail-item"><strong>Chain</strong>{submission.publish.chainId}</div>
+                          <div className="detail-item"><strong>Campaign version</strong>{submission.publish.campaignVersion}</div>
+                          <div className="detail-item"><strong>Confirmations</strong>{submission.publish.confirmations}</div>
                           <div className="detail-item"><strong>Publisher</strong>{short(submission.publish.publisherAddress)}</div>
                           <div className="detail-item"><strong>Published</strong>{formatTime(submission.publish.publishedAt)}</div>
                         </div>

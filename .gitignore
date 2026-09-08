@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.testnet.example
 !**/.env.example
 
 *.key
@@ -23,6 +24,7 @@ coverage.json
 typechain/
 typechain-types/
 deployments/
+.testnet-runs/
 gasReporterOutput.json
 
 # --- Next.js / React ---

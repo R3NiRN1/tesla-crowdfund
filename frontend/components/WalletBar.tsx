@@ -1,14 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAccount, useSignMessage } from "wagmi";
+import { useAccount } from "wagmi";
 
-import {
-  BackendClientError,
-  getBackendUrl,
-  requestBackendAuthNonce,
-  verifyBackendAuthSignature,
-} from "@/lib/backendClient";
+import { BackendClientError, getBackendUrl } from "@/lib/backendClient";
+import { useBackendAuth } from "@/lib/useBackendAuth";
 import { useNetworkGuard } from "@/lib/useNetworkGuard";
 
 function short(address?: string) {
@@ -18,11 +14,10 @@ function short(address?: string) {
 
 export default function WalletBar() {
   const { address, isConnected } = useAccount();
-  const { signMessageAsync } = useSignMessage();
   const guard = useNetworkGuard();
   const backendUrl = getBackendUrl();
+  const backendAuth = useBackendAuth();
   const [mounted, setMounted] = useState(false);
-  const [authBusy, setAuthBusy] = useState(false);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
 
   useEffect(() => setMounted(true), []);
@@ -30,17 +25,12 @@ export default function WalletBar() {
 
   const authenticate = async () => {
     if (!address || !backendUrl) return;
-    setAuthBusy(true);
     setAuthMessage(null);
     try {
-      const challenge = await requestBackendAuthNonce(address);
-      const signature = await signMessageAsync({ message: challenge.message });
-      const result = await verifyBackendAuthSignature(address, challenge.nonce, signature);
-      setAuthMessage(result.authenticated ? "Backend signature verified" : "Verification failed");
+      const session = await backendAuth.authenticate();
+      setAuthMessage(`Backend session active until ${new Date(session.expiresAt).toLocaleTimeString()}`);
     } catch (error) {
-      setAuthMessage(error instanceof BackendClientError ? error.message : "Wallet verification was not completed");
-    } finally {
-      setAuthBusy(false);
+      setAuthMessage(error instanceof BackendClientError || error instanceof Error ? error.message : "Wallet verification was not completed");
     }
   };
 
@@ -54,8 +44,17 @@ export default function WalletBar() {
         {guard.isWrongNetwork && guard.expectedLabel ? ` | expected ${guard.expectedLabel}` : ""}
       </span>
       {backendUrl && (
-        <button type="button" className="button-secondary" disabled={authBusy} onClick={() => void authenticate()}>
-          {authBusy ? "Check wallet..." : "Verify wallet with backend"}
+        <button
+          type="button"
+          className={backendAuth.isAuthenticated ? "button-disabled" : "button-secondary"}
+          disabled={backendAuth.authenticating || backendAuth.isAuthenticated}
+          onClick={() => void authenticate()}
+        >
+          {backendAuth.authenticating
+            ? "Check wallet..."
+            : backendAuth.isAuthenticated
+            ? "Backend authenticated"
+            : "Authenticate backend"}
         </button>
       )}
       {authMessage && <span className="small muted">{authMessage}</span>}

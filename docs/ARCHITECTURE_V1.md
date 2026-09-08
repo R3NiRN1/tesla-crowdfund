@@ -2,7 +2,7 @@
 
 ## Purpose
 
-TES Crowdfund has a real on-chain funding core, a file-backed alpha backend, and a Next.js alpha frontend. This document records the current V1 architecture so launch hardening work does not blur what is contract-enforced, platform-reviewed, or still alpha-only.
+TES Crowdfund has a real on-chain funding core, a provider-neutral backend persistence boundary, and a Next.js alpha frontend. This document began as the V1 architecture record; the V2 remediation notes below supersede its former file-only and static-admin-token assumptions.
 
 ## Current Repo Reality
 
@@ -17,8 +17,8 @@ TES Crowdfund has a real on-chain funding core, a file-backed alpha backend, and
 
 ### Alpha-Only Boundaries
 
-- Backend persistence is file-backed JSON in `backend/data`; it is not production storage.
-- `ADMIN_TOKEN` can be optional only in local alpha mode. Production mode requires a strong token and explicit CORS origin.
+- File-backed JSON remains a local-development adapter only; production fails closed unless PostgreSQL is configured and migrated.
+- Administrative routes require named, role-authorized operator sessions. Creator wallet sessions cannot acquire operator privileges.
 - Browser localStorage is still used for setup overrides and local draft fallback data.
 - Binary uploads are not stored by the backend. Creators add external media references only.
 - Manual verification is a V1 platform review record, not third-party KYC.
@@ -128,7 +128,7 @@ Admin frontend responsibilities:
 - approval, rejection, and needs-changes decisions
 - publish record visibility
 - backend audit log visibility
-- local alpha admin token handling
+- short-lived operator session handling
 
 Frontend state must not be production truth for:
 
@@ -164,9 +164,9 @@ Browser localStorage must not be treated as production truth. Specifically:
 
 ## Current Launch Gaps
 
-1. Persistence, backup, restore, and migration are not launch-ready.
-2. Creator mutations are not fully session-authorized even though signature verification exists.
-3. Admin auth is token-based alpha discipline, not role-based production authorization.
+1. Production hosting must configure PostgreSQL TLS, backups, point-in-time recovery, monitoring and restore drills.
+2. Production operator credential distribution/rotation or a replacement workforce identity provider remains a hosting decision.
+3. Independent security and operational release review remains required.
 4. Binary uploads are not implemented; only external media references are supported.
 5. Public/backer flows need stronger refund, claimable, deadline, and risk-state copy.
 6. Observability and support diagnostics are minimal.

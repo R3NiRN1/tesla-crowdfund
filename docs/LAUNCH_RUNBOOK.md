@@ -13,8 +13,9 @@ DEPLOYER_PRIVATE_KEY=0x...
 CONFIRM_MAINNET=YES
 BSCSCAN_API_KEY=...
 NODE_ENV=production
-ADMIN_TOKEN=<24+ character secret>
 CORS_ORIGIN=https://your-frontend-origin.example
+STORAGE_DRIVER=postgres
+DATABASE_URL=<secret PostgreSQL connection string>
 ```
 
 Frontend `frontend/.env.local`:
@@ -48,7 +49,7 @@ npm --prefix frontend run lint
 npm run build:frontend
 ```
 
-`npm run preflight` must fail in production if `ADMIN_TOKEN` is weak or `CORS_ORIGIN` is wildcard. Local setup/read-only warnings are acceptable only for local rehearsal.
+`npm run preflight` must fail in production if durable PostgreSQL is absent or `CORS_ORIGIN` is wildcard. Local setup/read-only warnings are acceptable only for local rehearsal.
 
 ## 3. Deploy And Rehearse
 
@@ -58,7 +59,7 @@ Testnet:
 2. Run `npm run deploy:testnet`.
 3. Save factory, token, deployer, transaction hashes, and explorer links.
 4. Update frontend env with deployed factory/token addresses.
-5. Start backend with `NODE_ENV=production`, `ADMIN_TOKEN`, and explicit `CORS_ORIGIN`.
+5. Apply migrations, provision an active review operator, and start the backend with `NODE_ENV=production`, PostgreSQL, and explicit `CORS_ORIGIN`.
 6. Start frontend and verify `/health`, `/admin`, `/campaigns/new`, `/campaigns`, and `/`.
 7. Run `docs/LAUNCH_REHEARSAL.md` through creator submission, admin approval, wallet publish, public listing, backer contribution, and refund/claim smoke where feasible.
 
@@ -75,7 +76,7 @@ Mainnet:
 
 1. Open `/admin` with a reviewer wallet connected.
 2. Confirm backend health shows expected production config and no wildcard CORS.
-3. Enter the admin token only in the page field; do not store it in browser storage.
+3. Authenticate a named operator credential; only its hash may be persisted server-side and the browser receives a short-lived session.
 4. Use Operations snapshot to prioritize `pending_review`, `needs_changes`, and approved-unpublished submissions.
 5. For every review, record a moderation note and verification note.
 6. Approve only after manual creator/submission verification.
@@ -116,7 +117,7 @@ Contracts are immutable. Rollback applies to frontend/backend/config only:
 
 ## 8. Known Limitations
 
-- File-backed backend persistence now has backup/restore tooling, but it remains alpha storage until replaced by durable production persistence.
+- File-backed persistence remains local-only; production uses provider-neutral PostgreSQL and still requires hosting-level backup/restore drills.
 - Remaining dependency-audit findings are release-gated in `docs/SECURITY_THREAT_MODEL.md`.
 - In-memory backend rate limiting is an alpha guardrail; production should use edge limits too.
 - Manual verification is not third-party KYC.
@@ -128,7 +129,7 @@ Contracts are immutable. Rollback applies to frontend/backend/config only:
 - [ ] CI is green on the release commit.
 - [ ] `npm run preflight` passes with production env.
 - [ ] Backend `/health` reports production-ready config.
-- [ ] Admin diagnostics load with the production admin token.
+- [ ] Admin diagnostics load for an authorized named production operator.
 - [ ] Testnet rehearsal completed using `docs/LAUNCH_REHEARSAL.md` with creator, admin, backer, publish, contribution, and refund/claim evidence.
 - [ ] Backup/restore rehearsal completed using `docs/PERSISTENCE_BACKUP.md`.
 - [ ] Mainnet deployer wallet, contract addresses, and explorer links are recorded.

@@ -30,9 +30,9 @@ BSC_TESTNET_RPC_URL=https://...
 DEPLOYER_PRIVATE_KEY=0x...
 BSCSCAN_API_KEY=...
 NODE_ENV=production
-ADMIN_TOKEN=<24+ character secret>
 CORS_ORIGIN=https://your-frontend-origin.example
-TESLA_CROWDFUND_BACKEND_DB=/var/lib/tes-crowdfund/backend-store.json
+STORAGE_DRIVER=postgres
+DATABASE_URL=<secret PostgreSQL connection string>
 ```
 
 Create `frontend/.env.local`:
@@ -102,14 +102,14 @@ npm run launch:rehearsal -- --live-testnet
 npm run preflight
 ```
 
-The live rehearsal gate must reject zero addresses, missing backend URL, weak admin token, wildcard CORS, and missing testnet RPC values.
+The live rehearsal gate must reject zero addresses, missing backend URL, non-durable production storage, wildcard CORS, and missing testnet RPC values.
 
 ## 6. Start Backend And Frontend
 
 Backend:
 
 ```bash
-NODE_ENV=production ADMIN_TOKEN=<secret> CORS_ORIGIN=https://your-frontend-origin.example npm run backend:dev
+NODE_ENV=production STORAGE_DRIVER=postgres DATABASE_URL=<secret> CORS_ORIGIN=https://your-frontend-origin.example npm run backend:dev
 ```
 
 Frontend:
@@ -121,7 +121,7 @@ npm --prefix frontend run dev
 Verify:
 
 - `/health` reports production-ready config.
-- `/admin/diagnostics` loads with the admin token.
+- `/admin/diagnostics` loads only after a named operator with `diagnostics.read` authenticates.
 - `/campaigns/new`, `/campaigns`, `/admin`, and `/` render without console-breaking errors.
 
 ## 7. Creator Submission
@@ -145,7 +145,7 @@ Record:
 ## 8. Admin Approval
 
 1. Open `/admin`.
-2. Enter the admin token.
+2. Authenticate a server-provisioned named operator credential.
 3. Filter to `pending review`.
 4. Inspect campaign copy, media references, metadata URI, readiness blockers, review history, and audit history.
 5. Add moderation and verification notes.

@@ -1,14 +1,7 @@
-import fs from "node:fs";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { READINESS, withReadiness } from "./validation.mjs";
-
-const DEFAULT_DATA_DIR = path.join(process.cwd(), "backend", "data");
-const DEFAULT_DB_FILE = path.join(DEFAULT_DATA_DIR, "backend-alpha-store.json");
-const NONCE_TTL_MS = 5 * 60 * 1000;
-const MAX_NONCE_RECORDS = 500;
-
+import { getRepository } from "./repository.mjs";
 const ALLOWED_TRANSITIONS = Object.freeze({
   draft: new Set(["pending_review"]),
   pending_review: new Set(["needs_changes", "approved", "rejected"]),
@@ -25,62 +18,22 @@ function backendError(statusCode, code, message) {
   return error;
 }
 
-function dbFile() {
-  return process.env.TESLA_CROWDFUND_BACKEND_DB || DEFAULT_DB_FILE;
+export async function readStore() {
+  return getRepository().read();
 }
 
-function emptyStore() {
-  return {
-    version: 1,
-    submissions: [],
-    nonces: [],
-    auditLog: [],
-  };
+export async function writeStore(store) {
+  return getRepository().transaction((current) => {
+    Object.assign(current, structuredClone(store));
+    return structuredClone(current);
+  });
 }
 
-function ensureStoreDir() {
-  fs.mkdirSync(path.dirname(dbFile()), { recursive: true });
-}
-
-export function readStore() {
-  ensureStoreDir();
-
-  if (!fs.existsSync(dbFile())) {
-    return emptyStore();
-  }
-
-  try {
-    const parsed = JSON.parse(fs.readFileSync(dbFile(), "utf8"));
-    return {
-      version: 1,
-      submissions: Array.isArray(parsed.submissions) ? parsed.submissions : [],
-      nonces: Array.isArray(parsed.nonces) ? parsed.nonces : [],
-      auditLog: Array.isArray(parsed.auditLog) ? parsed.auditLog : [],
-    };
-  } catch (error) {
-    throw new Error(`Failed to read backend alpha store: ${error.message}`);
-  }
-}
-
-export function writeStore(store) {
-  ensureStoreDir();
-  const next = {
-    version: 1,
-    submissions: Array.isArray(store.submissions) ? store.submissions : [],
-    nonces: Array.isArray(store.nonces) ? store.nonces : [],
-    auditLog: Array.isArray(store.auditLog) ? store.auditLog : [],
-  };
-
-  const tmp = `${dbFile()}.tmp`;
-  fs.writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`);
-  fs.renameSync(tmp, dbFile());
-  return next;
-}
-
-export function appendAudit(store, action, detail = {}) {
+export function appendAudit(store, action, detail = {}, actor = { kind: "system", id: null }) {
   const entry = {
     id: randomUUID(),
     action,
+    actor,
     detail,
     timestamp: new Date().toISOString(),
   };
@@ -118,8 +71,8 @@ function normalizeSubmission(payload, existing = {}) {
   });
 }
 
-export function buildSubmissionMetadata(id) {
-  const submission = readStore().submissions.find((item) => item.id === id);
+export async function buildSubmissionMetadata(id) {
+  const submission = (await readStore()).submissions.find((item) => item.id === id);
   if (!submission) {
     throw backendError(404, "submission-not-found", "submission not found");
   }
@@ -146,27 +99,26 @@ export function buildSubmissionMetadata(id) {
   };
 }
 
-export function createSubmission(payload = {}) {
-  const store = readStore();
-  const now = new Date().toISOString();
-  const submission = normalizeSubmission(payload, {
-    id: randomUUID(),
-    status: "draft",
-    review: null,
-    publish: null,
-    updates: [],
-    createdAt: now,
-    updatedAt: now,
+export async function createSubmission(payload = {}, actor) {
+  return getRepository().transaction((store) => {
+    const now = new Date().toISOString();
+    const submission = normalizeSubmission(payload, {
+      id: randomUUID(),
+      status: "draft",
+      review: null,
+      publish: null,
+      updates: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    store.submissions.unshift(submission);
+    appendAudit(store, "submission.created", {
+      submissionId: submission.id,
+      title: submission.title,
+      readiness: submission.readiness.state,
+    }, actor);
+    return structuredClone(submission);
   });
-
-  store.submissions.unshift(submission);
-  appendAudit(store, "submission.created", {
-    submissionId: submission.id,
-    title: submission.title,
-    readiness: submission.readiness.state,
-  });
-  writeStore(store);
-  return submission;
 }
 
 function publicCampaign(submission) {
@@ -244,14 +196,14 @@ function publicCampaign(submission) {
   };
 }
 
-export function listPublishedCampaigns() {
-  return readStore().submissions
+export async function listPublishedCampaigns() {
+  return (await readStore()).submissions
     .filter((submission) => submission.status === "published" && submission.publish)
     .map(publicCampaign);
 }
 
-export function addCampaignUpdate(id, payload = {}) {
-  const store = readStore();
+export async function addCampaignUpdate(id, payload = {}, actor) {
+  return getRepository().transaction((store) => {
   const index = store.submissions.findIndex((submission) => submission.id === id);
   if (index === -1) {
     throw backendError(404, "submission-not-found", "submission not found");
@@ -300,18 +252,18 @@ export function addCampaignUpdate(id, payload = {}) {
     updates: [...(submission.updates ?? []), update],
     updatedAt: update.createdAt,
   };
-  appendAudit(store, "campaign.update_added", {
+    appendAudit(store, "campaign.update_added", {
     submissionId: id,
     updateId: update.id,
     publisherAddress,
     milestoneIndex,
+    }, actor);
+    return structuredClone(update);
   });
-  writeStore(store);
-  return update;
 }
 
-export function updateSubmission(id, patch = {}) {
-  const store = readStore();
+export async function updateSubmission(id, patch = {}, actor) {
+  return getRepository().transaction((store) => {
   const index = store.submissions.findIndex((submission) => submission.id === id);
   if (index === -1) {
     throw backendError(404, "submission-not-found", "submission not found");
@@ -333,20 +285,20 @@ export function updateSubmission(id, patch = {}) {
   });
 
   store.submissions[index] = next;
-  appendAudit(store, "submission.updated", {
+    appendAudit(store, "submission.updated", {
     submissionId: id,
     readiness: next.readiness.state,
+    }, actor);
+    return structuredClone(next);
   });
-  writeStore(store);
-  return next;
 }
 
-export function updateSubmissionStatus(id, status, patch = {}) {
+export async function updateSubmissionStatus(id, status, patch = {}, actor) {
   if (!Object.hasOwn(ALLOWED_TRANSITIONS, status)) {
     throw backendError(400, "invalid-submission-status", `invalid submission status: ${status}`);
   }
 
-  const store = readStore();
+  return getRepository().transaction((store) => {
   const index = store.submissions.findIndex((submission) => submission.id === id);
   if (index === -1) {
     throw backendError(404, "submission-not-found", "submission not found");
@@ -375,97 +327,14 @@ export function updateSubmissionStatus(id, status, patch = {}) {
   });
 
   store.submissions[index] = next;
-  appendAudit(store, `submission.${status}`, {
+    appendAudit(store, `submission.${status}`, {
     submissionId: id,
     previousStatus: previous.status,
     reviewDecision: next.review?.decision ?? null,
     verificationState: next.verification?.state ?? "unverified",
-    reviewerAddress: next.review?.reviewerAddress ?? null,
+    reviewerOperatorId: next.review?.reviewerOperatorId ?? null,
+    reviewerSubject: next.review?.reviewerSubject ?? null,
+    }, actor);
+    return structuredClone(next);
   });
-  writeStore(store);
-  return next;
-}
-
-export function issueNonce(address) {
-  const store = readStore();
-  const normalized = String(address || "").trim().toLowerCase();
-
-  if (!/^0x[a-fA-F0-9]{40}$/.test(normalized) || normalized === "0x0000000000000000000000000000000000000000") {
-    throw backendError(400, "invalid-wallet-address", "valid non-zero wallet address is required");
-  }
-
-  const issuedAt = new Date();
-  const expiresAt = new Date(issuedAt.getTime() + NONCE_TTL_MS);
-  const nonce = randomUUID();
-  const message = [
-    "TES Crowdfund wallet authentication",
-    `Address: ${normalized}`,
-    `Nonce: ${nonce}`,
-    `Issued at: ${issuedAt.toISOString()}`,
-    `Expires at: ${expiresAt.toISOString()}`,
-    "Purpose: authenticate with the non-custodial alpha backend",
-  ].join("\n");
-
-  store.nonces = store.nonces.map((record) => {
-    if (record.address !== normalized || record.used === true) return record;
-    return { ...record, used: true, invalidatedAt: issuedAt.toISOString(), invalidationReason: "superseded" };
-  });
-  const record = {
-    id: randomUUID(),
-    address: normalized,
-    nonce,
-    used: false,
-    message,
-    issuedAt: issuedAt.toISOString(),
-    expiresAt: expiresAt.toISOString(),
-  };
-
-  store.nonces.unshift(record);
-  store.nonces = store.nonces.slice(0, MAX_NONCE_RECORDS);
-  appendAudit(store, "auth.nonce_issued", { address: normalized });
-  writeStore(store);
-
-  return {
-    address: normalized,
-    nonce,
-    message,
-    expiresAt: record.expiresAt,
-  };
-}
-
-export function getActiveNonce(address, nonce) {
-  const store = readStore();
-  const normalized = String(address || "").trim().toLowerCase();
-  const record = store.nonces.find((item) => {
-    return item.address === normalized && item.nonce === nonce && item.used === false;
-  });
-  if (!record) {
-    throw backendError(400, "invalid-nonce", "nonce not found, superseded, or already used");
-  }
-  if (!record.expiresAt || Date.parse(record.expiresAt) <= Date.now()) {
-    throw backendError(400, "nonce-expired", "nonce has expired");
-  }
-  return record;
-}
-
-export function consumeNonce(address, nonce) {
-  const store = readStore();
-  const normalized = String(address || "").trim().toLowerCase();
-  getActiveNonce(normalized, nonce);
-  const index = store.nonces.findIndex((record) => {
-    return record.address === normalized && record.nonce === nonce && record.used === false;
-  });
-
-  if (index === -1) {
-    throw backendError(400, "invalid-nonce", "nonce not found, superseded, or already used");
-  }
-
-  store.nonces[index] = {
-    ...store.nonces[index],
-    used: true,
-    usedAt: new Date().toISOString(),
-  };
-  appendAudit(store, "auth.nonce_consumed", { address: normalized });
-  writeStore(store);
-  return store.nonces[index];
 }

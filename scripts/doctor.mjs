@@ -70,8 +70,6 @@ const rpcUrl = mergedEnv.NEXT_PUBLIC_RPC_URL?.trim() ?? "";
 const bscscanBase = mergedEnv.NEXT_PUBLIC_BSCSCAN_BASE?.trim() ?? "";
 const factoryAddress = mergedEnv.NEXT_PUBLIC_FACTORY_ADDRESS?.trim() ?? "";
 const tokenAddress = mergedEnv.NEXT_PUBLIC_TOKEN_ADDRESS?.trim() ?? "";
-const wcEnabled = mergedEnv.NEXT_PUBLIC_WC_ENABLED === "true";
-const wcProjectId = mergedEnv.NEXT_PUBLIC_WC_PROJECT_ID?.trim() ?? "";
 
 const warnings = [];
 const errors = [];
@@ -116,10 +114,6 @@ function addressStatus(label, value) {
 const factoryStatus = addressStatus("NEXT_PUBLIC_FACTORY_ADDRESS", factoryAddress);
 const tokenStatus = addressStatus("NEXT_PUBLIC_TOKEN_ADDRESS", tokenAddress);
 
-if (wcEnabled && !wcProjectId) {
-  warnings.push("WalletConnect enabled but NEXT_PUBLIC_WC_PROJECT_ID is missing.");
-}
-
 const { node, npm } = getVersions();
 
 console.log("Doctor report\n----------------\n");
@@ -138,8 +132,7 @@ console.log(`- NEXT_PUBLIC_FACTORY_ADDRESS: ${shortenAddress(factoryAddress)}${
   factoryStatus.isZero ? " (ZERO_ADDRESS)" : ""
 }`);
 console.log(`- NEXT_PUBLIC_TOKEN_ADDRESS: ${shortenAddress(tokenAddress)}${tokenStatus.isZero ? " (ZERO_ADDRESS)" : ""}`);
-console.log(`- WalletConnect enabled: ${wcEnabled ? "true" : "false"}`);
-console.log(`- WalletConnect project ID: ${wcProjectId ? "set" : "missing"}`);
+console.log("- Wallet connector: injected browser provider only");
 
 if (warnings.length) {
   console.warn("\nWarnings:");

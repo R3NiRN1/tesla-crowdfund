@@ -9,7 +9,10 @@
     "doctor": "node scripts/doctor.mjs",
     "preflight": "node scripts/preflight.mjs",
     "backend:dev": "node backend/server.mjs",
-    "backend:check": "node backend/check.mjs",
+    "backend:check": "node backend/check.mjs && node backend/security-check.mjs && node backend/persistence-check.mjs && node backend/operator-check.mjs && node backend/publication-check.mjs && node backend/route-security-check.mjs && node backend/proxy-check.mjs",
+    "backend:postgres:check": "node backend/postgres-check.mjs",
+    "backend:migrate": "node backend/migrate.mjs",
+    "backend:operator": "node scripts/operator.mjs",
     "backend:store:check": "node scripts/backend-store.mjs check",
     "backend:backup": "node scripts/backend-store.mjs backup",
     "backend:restore": "node scripts/backend-store.mjs restore",
@@ -22,7 +25,8 @@
     "verify:testnet": "hardhat run scripts/verify.ts --network bscTestnet",
     "verify:mainnet": "hardhat run scripts/verify.ts --network bscMainnet",
     "smoke:testnet": "hardhat run scripts/smoke.ts --network bscTestnet",
-    "smoke:mainnet": "hardhat run scripts/smoke.ts --network bscMainnet"
+    "smoke:mainnet": "hardhat run scripts/smoke.ts --network bscMainnet",
+    "testnet:harness": "hardhat run scripts/testnet/harness.ts --network bscTestnet"
   },
   "keywords": [],
   "author": "",
@@ -38,6 +42,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^5.4.0"
+    "@openzeppelin/contracts": "^5.4.0",
+    "pg": "8.23.0"
   }
 }

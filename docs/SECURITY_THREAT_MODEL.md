@@ -6,7 +6,7 @@ TES Crowdfund keeps campaign funds and publishing in user wallets and campaign c
 
 ## Primary Risks
 
-- Admin route abuse: mitigated with `ADMIN_TOKEN`, production startup checks, admin-only diagnostics, audit events, and launch preflight checks.
+- Operator route abuse: mitigated with named server-side identities, hashed short-lived sessions, explicit roles, production durable-storage/startup checks, and attributable audit events.
 - Cross-origin misuse: production requires explicit `CORS_ORIGIN`; wildcard CORS is local-alpha only.
 - Wallet replay: backend wallet auth uses five-minute single-use nonces and consumes a nonce only after successful signature verification.
 - Request flooding: backend routes use in-memory per-IP buckets by route group. This is an alpha guardrail, not a substitute for edge or load-balancer rate limits.
@@ -16,17 +16,28 @@ TES Crowdfund keeps campaign funds and publishing in user wallets and campaign c
 ## Required Launch Configuration
 
 - `NODE_ENV=production`
-- `ADMIN_TOKEN` set to at least 24 characters.
+- `STORAGE_DRIVER=postgres`, `DATABASE_URL`, applied migrations, and at least one active named review operator.
 - `CORS_ORIGIN` set to the exact deployed frontend origin.
 - `NEXT_PUBLIC_BACKEND_URL` set in the frontend environment.
 - `NEXT_PUBLIC_FACTORY_ADDRESS` and `NEXT_PUBLIC_TOKEN_ADDRESS` set to deployed contract addresses for live launch.
-- Branch protection on `dev` requiring CI to pass before merge.
+- A repository ruleset that targets `dev` and requires the exact check context emitted
+  by CI. The current ruleset requires `CI`, while exact-head runs expose individual job
+  names rather than a check named `CI`; a repository administrator must correct and
+  verify that mapping before merge.
 
 ## Dependency Audit
 
-On June 20, 2026, frontend audit review found direct Next.js advisories and wallet-stack advisories. This PR upgrades `next` and `eslint-config-next` to `16.2.9` and runs a non-forced `npm audit fix` to apply compatible transitive updates without changing wallet publishing behavior.
+The remediation pins `next` and `eslint-config-next` to `16.3.3`. On 2026-09-08,
+compatible lockfile-only updates moved Browserslist to `4.28.9` and `@humanfs/node`
+to `0.16.8`; a clean frontend install, audit, lint, TypeScript check, and production
+build then passed with zero reported frontend vulnerabilities.
 
-Remaining audit findings require breaking `ethers`, `wagmi`, `viem`, or wallet-connector upgrades, or a separate Next/PostCSS advisory decision. Do not launch mainnet until those findings are accepted with compensating controls or resolved through a dedicated dependency-upgrade and wallet regression pass.
+The root Hardhat 2 / ethers 5 build and deployment toolchain remains blocked: the
+exact-head audit reports 7 High, 4 Moderate, and 16 Low findings, and a non-forced
+audit fix proposes no compatible change. GitHub Dependency Review is also unavailable
+until a repository administrator enables Dependency Graph. Do not launch or merge on
+the basis of the clean frontend tree; resolve the root toolchain in a separate controlled
+migration, enable Dependency Graph, and rerun every gate at the resulting exact commit.
 
 ## Release Rules
 
@@ -34,5 +45,5 @@ Remaining audit findings require breaking `ethers`, `wagmi`, `viem`, or wallet-c
 - Never publish from backend-held keys.
 - Never treat localStorage as production truth.
 - Never enable wildcard CORS in production.
-- Never run admin routes in production without `ADMIN_TOKEN`.
+- Never run operator routes in production without durable storage, migrations, named identities and server-side roles.
 - Re-run `npm run preflight`, `npm run backend:check`, `npm run test:contracts`, `npm --prefix frontend run lint`, and `npm run build:frontend` for release candidates.
