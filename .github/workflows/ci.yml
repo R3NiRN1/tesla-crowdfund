@@ -58,6 +58,8 @@ jobs:
       - name: Apply reproducible PostgreSQL migrations
         run: npm run backend:migrate
       - name: Check backend state, auth, persistence and provenance
+        env:
+          STORAGE_DRIVER: file
         run: npm run backend:check
       - name: Check PostgreSQL transactions and multi-instance semantics
         run: npm run backend:postgres:check
