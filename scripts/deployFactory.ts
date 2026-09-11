@@ -1,8 +1,7 @@
-import { ethers } from "hardhat";
-import { assertNetworkSafety } from "./guardrails";
+import { assertNetworkSafety } from "./guardrails.js";
 
 async function main() {
-  await assertNetworkSafety("deployFactory");
+  const { viem } = await assertNetworkSafety("deployFactory");
 
   const tokenAddress =
     process.env.MOCK_TES_ADDRESS || process.env.TOKEN_ADDRESS;
@@ -11,13 +10,11 @@ async function main() {
     throw new Error("Set MOCK_TES_ADDRESS (preferred) or TOKEN_ADDRESS in root .env");
   }
 
-  const [deployer] = await ethers.getSigners();
-  console.log("Deployer:", deployer.address);
+  const [deployer] = await viem.getWalletClients();
+  console.log("Deployer:", deployer.account.address);
   console.log("Token for factory:", tokenAddress);
 
-  const Factory = await ethers.getContractFactory("CampaignFactory");
-  const factory = await Factory.deploy(tokenAddress);
-  await factory.deployed();
+  const factory = await viem.deployContract("CampaignFactory", [tokenAddress as `0x${string}`]);
 
   console.log("Factory:", factory.address);
 }

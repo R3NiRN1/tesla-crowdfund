@@ -22,7 +22,7 @@ an audit, penetration test, or mainnet release approval.
 | Gitleaks | action `v3` | `gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e` | Current-tree and history secret scan |
 | GitHub Dependency Review | `v4.9.0` | `actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48` | Reject newly introduced High/Critical advisories |
 | CodeQL | `v4.37.9` | `github/codeql-action@cdf488f595d80d6e07e03d4674febd5ab45fa938` | JavaScript/TypeScript static analysis and SARIF ingestion |
-| npm audit | npm bundled with Node `20.19.0` | n/a | Whole root and frontend lockfile advisory gate |
+| npm audit | npm bundled with Node `24` in CI | n/a | Whole root and frontend lockfile advisory gate |
 
 Actions are pinned to full commits. Updating a pin requires review of the upstream
 release and the new commit, followed by a clean CI run.
@@ -60,6 +60,7 @@ acceptance, and unresolved review threads remain for human review.
 | 2026-09-08 | `4135489a299d3a5f640570703db3452eec33438d` | CodeQL `DOM text reinterpreted as HTML` | Severity not exposed in PR thread | `frontend/app/page.tsx:52` | Unresolved review thread. JSX renders `short(address)` as a React text child; no HTML parser or `dangerouslySetInnerHTML` sink is invoked. Explorer URL validation remains a separate URL-scheme concern. | Security Gates run 12 CodeQL job passed, but the GitHub Advanced Security CodeQL check/review thread must be treated separately. | Human security-thread review required; do not auto-resolve. |
 | 2026-09-08 | `6060b65cd7f7167a7a5cdb71af9a8fed4d674e67` | npm audit `GHSA-c83g-rgw3-j3cx`, `GHSA-73wf-gq98-2v4g`, `GHSA-p498-v437-472g` | High / Moderate | `eslint-config-next -> eslint-plugin-react-hooks -> @babel/core -> @babel/helper-compilation-targets -> browserslist`; `eslint -> @humanfs/node` | Fixed with npm-generated compatible lockfile updates: Browserslist 4.28.9 and `@humanfs/node` 0.16.8. | Clean npm 10.8.2 install, zero-vulnerability frontend audit, lint, TypeScript, and production build. | Retain the audit gate. |
 | 2026-09-08 | `4135489a299d3a5f640570703db3452eec33438d` | Root npm audit | 7 High, 4 Moderate, 16 Low | Hardhat 2 / ethers 5 build, deployment, and test toolchain | Open blocker. A non-forced audit fix proposes zero compatible changes. Do not force overrides or combine a Hardhat/ethers migration with unrelated remediation. | Security Gates run 12 dependency-audit job failed; no human acceptance recorded. | Separate controlled toolchain decision required. |
+| 2026-09-11 | `a2762956b7cb78894b5a19ea59114f833073a1b9` | Root npm audit / `GHSA-vwc7-r8mq-g2x9` | Moderate | Hardhat 3 -> `adm-zip` | The isolated Hardhat 3 / Viem candidate removes all root High/Critical findings. Three Moderate findings remain on this one dependency path. npm offers only `audit fix --force`, which would downgrade Hardhat; no forced change or acceptance was applied. | Local Node 24.19.0/npm 11.9.0 `npm audit --audit-level=high` exited 0; GitHub-hosted audit is still required at the published commit. | Track upstream Hardhat/`adm-zip`; re-review on either dependency update and before release. |
 
 ## Exact-head gate snapshot
 
@@ -75,6 +76,25 @@ Status at `4135489a299d3a5f640570703db3452eec33438d`:
 - Thirteen review threads remain unresolved: one CodeQL, one Slither strict-equality,
   and eleven Slither timestamp threads. Two fixed Slither threads were marked resolved
   by GitHub's updated analysis; no thread was manually resolved by the remediation agent.
+
+## Isolated migration candidate snapshot
+
+Local evidence at code commit `a2762956b7cb78894b5a19ea59114f833073a1b9`
+shows no High/Critical root dependency finding, 18 passing contract tests, all
+backend checks passing, and deployed-bytecode equivalence to PR #74 commit
+`9a6dcba887a553f42142ddbf4f52c177564a7662` after normalising only Solidity
+IPFS metadata hashes. This is not an exact-head GitHub gate result. The candidate
+The clean frontend audit/lint/build and local chain-31337 V2 deploy/smoke criteria
+also passed without sending a BSC transaction. The candidate is published as
+draft PR #75. At predecessor head
+`609b35c517984a79b20b7d13d5c32f34f3a512fa`, all five CI jobs and every
+code-controlled Security Gates job passed; Dependency Review alone failed
+because Dependency Graph is disabled. The migration branch now adds an aggregate
+check named `CI` that depends on all five existing CI jobs so the documented
+ruleset context cannot pass when an underlying job fails. The candidate remains
+stopped pending exact-head verification of that aggregate check, Dependency
+Graph enablement, ruleset branch-target verification, and human disposition of
+the 13 unresolved review threads.
 
 ## Narrow vendor finding filter
 

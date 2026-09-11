@@ -48,10 +48,10 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - name: Use Node.js 20.19.0
+      - name: Use Node.js 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20.19.0
+          node-version: 24
           package-manager-cache: false
       - name: Install root dependencies
         run: npm ci
@@ -73,10 +73,10 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - name: Use Node.js 20.19.0
+      - name: Use Node.js 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20.19.0
+          node-version: 24
           package-manager-cache: false
       - name: Install root dependencies
         run: npm ci
@@ -96,10 +96,10 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - name: Use Node.js 20.19.0
+      - name: Use Node.js 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20.19.0
+          node-version: 24
           package-manager-cache: false
       - name: Install root dependencies
         run: npm ci
@@ -143,10 +143,10 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - name: Use Node.js 20.19.0
+      - name: Use Node.js 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20.19.0
+          node-version: 24
           package-manager-cache: false
       - name: Install root dependencies
         run: npm ci
@@ -162,10 +162,10 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - name: Use Node.js 20.19.0
+      - name: Use Node.js 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20.19.0
+          node-version: 24
           package-manager-cache: false
       - name: Install frontend dependencies
         run: npm --prefix frontend ci
@@ -173,3 +173,29 @@ jobs:
         run: npm --prefix frontend run lint
       - name: Build frontend
         run: npm --prefix frontend run build
+
+  required-check:
+    name: CI
+    if: ${{ always() }}
+    needs:
+      - backend
+      - contracts
+      - deploy-smoke
+      - preflight
+      - frontend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every CI job to pass
+        env:
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          CONTRACTS_RESULT: ${{ needs.contracts.result }}
+          DEPLOY_SMOKE_RESULT: ${{ needs['deploy-smoke'].result }}
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+        run: |
+          test "$BACKEND_RESULT" = success
+          test "$CONTRACTS_RESULT" = success
+          test "$DEPLOY_SMOKE_RESULT" = success
+          test "$PREFLIGHT_RESULT" = success
+          test "$FRONTEND_RESULT" = success

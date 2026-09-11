@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import ethersPackage from "ethers";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 const tempDb = path.join(os.tmpdir(), `tesla-crowdfund-security-check-${Date.now()}.json`);
 process.env.TESLA_CROWDFUND_BACKEND_DB = tempDb;
@@ -14,14 +14,14 @@ const {
   revokeWalletSession,
   verifyWalletSignature,
 } = await import("./auth.mjs");
-const { ethers } = ethersPackage;
+const createWallet = () => privateKeyToAccount(generatePrivateKey());
 
 async function expectCode(promise, code) {
   await assert.rejects(promise, (error) => error.code === code);
 }
 
 try {
-  const wallet = ethers.Wallet.createRandom();
+  const wallet = createWallet();
   const first = await issueWalletChallenge(wallet.address);
   const second = await issueWalletChallenge(wallet.address);
 
@@ -30,7 +30,7 @@ try {
   assert.ok(Date.parse(second.expiresAt) > Date.now());
 
   // A later challenge must not invalidate one already being signed.
-  const firstSignature = await wallet.signMessage(first.message);
+  const firstSignature = await wallet.signMessage({ message: first.message });
   const firstAuth = await verifyWalletSignature(wallet.address, first.nonce, firstSignature);
   assert.equal(firstAuth.authenticated, true);
   assert.equal(firstAuth.address, wallet.address.toLowerCase());
@@ -38,7 +38,7 @@ try {
   assert.ok(Date.parse(firstAuth.expiresAt) > Date.now());
 
   // The second independently issued challenge remains valid as well.
-  const secondSignature = await wallet.signMessage(second.message);
+  const secondSignature = await wallet.signMessage({ message: second.message });
   const secondAuth = await verifyWalletSignature(wallet.address, second.nonce, secondSignature);
   assert.equal(secondAuth.authenticated, true);
   assert.notEqual(secondAuth.sessionToken, firstAuth.sessionToken);
