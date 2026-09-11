@@ -20,10 +20,10 @@ TES Crowdfund keeps campaign funds and publishing in user wallets and campaign c
 - `CORS_ORIGIN` set to the exact deployed frontend origin.
 - `NEXT_PUBLIC_BACKEND_URL` set in the frontend environment.
 - `NEXT_PUBLIC_FACTORY_ADDRESS` and `NEXT_PUBLIC_TOKEN_ADDRESS` set to deployed contract addresses for live launch.
-- A repository ruleset that targets `dev` and requires the exact check context emitted
-  by CI. The current ruleset requires `CI`, while exact-head runs expose individual job
-  names rather than a check named `CI`; a repository administrator must correct and
-  verify that mapping before merge.
+- A repository ruleset that targets `dev` and requires the aggregate `CI` check.
+  The aggregate job depends on all five backend, contract, deploy/smoke, preflight,
+  and frontend jobs and fails unless every job succeeds. A repository administrator
+  must still verify the ruleset targets the intended branch before merge.
 
 ## Dependency Audit
 
@@ -41,11 +41,12 @@ approved fix. Solidity remains pinned to 0.8.20 and EVM target `paris`; executab
 bytecode matches the PR #74 baseline after normalising only compiler metadata
 hashes.
 
-This local result does not clear the release gate. GitHub Dependency Review is
-still unavailable until a repository administrator enables Dependency Graph,
-and all GitHub-hosted security jobs plus unresolved human review threads must be
-re-evaluated at the published migration commit. Do not launch or merge on the
-basis of local audit evidence.
+This result does not clear the release gate. At draft PR #75 predecessor head
+`609b35c517984a79b20b7d13d5c32f34f3a512fa`, every code-controlled CI and
+security job passed. GitHub Dependency Review remains unavailable until a
+repository administrator enables Dependency Graph, the new aggregate `CI`
+context still requires exact-head verification, and unresolved human review
+threads remain. Do not launch or merge on the basis of automated evidence alone.
 
 ## Release Rules
 

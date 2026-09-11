@@ -85,10 +85,16 @@ backend checks passing, and deployed-bytecode equivalence to PR #74 commit
 `9a6dcba887a553f42142ddbf4f52c177564a7662` after normalising only Solidity
 IPFS metadata hashes. This is not an exact-head GitHub gate result. The candidate
 The clean frontend audit/lint/build and local chain-31337 V2 deploy/smoke criteria
-also passed without sending a BSC transaction. The candidate remains stopped
-pending publication to an isolated stacked branch, GitHub-hosted CI/security
-runs, Dependency Graph enablement, and human disposition of the 13 unresolved
-review threads.
+also passed without sending a BSC transaction. The candidate is published as
+draft PR #75. At predecessor head
+`609b35c517984a79b20b7d13d5c32f34f3a512fa`, all five CI jobs and every
+code-controlled Security Gates job passed; Dependency Review alone failed
+because Dependency Graph is disabled. The migration branch now adds an aggregate
+check named `CI` that depends on all five existing CI jobs so the documented
+ruleset context cannot pass when an underlying job fails. The candidate remains
+stopped pending exact-head verification of that aggregate check, Dependency
+Graph enablement, ruleset branch-target verification, and human disposition of
+the 13 unresolved review threads.
 
 ## Narrow vendor finding filter
 

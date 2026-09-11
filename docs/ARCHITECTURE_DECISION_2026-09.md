@@ -108,9 +108,12 @@ At code commit `a2762956b7cb78894b5a19ea59114f833073a1b9` on Node
   forced fix or risk acceptance was applied; and
 - the bytecode compatibility result is recorded above.
 
-Slither, CodeQL, history secret scanning, Dependency Review, and GitHub-hosted CI
-remain required before this candidate can be accepted. Dependency Review also
-remains blocked until a repository administrator enables Dependency Graph.
+On draft PR #75 predecessor head
+`609b35c517984a79b20b7d13d5c32f34f3a512fa`, all five CI jobs, Slither,
+CodeQL, history secret scanning, and the High/Critical dependency audit passed.
+Dependency Review failed only because the repository Dependency Graph is
+disabled. The subsequent aggregate `CI` job must pass at the resulting exact
+head before the ruleset mapping can be treated as verified.
 
 Failure of any criterion keeps this branch an unmerged spike. Mainnet and BSC
 testnet transactions remain outside this decision.
