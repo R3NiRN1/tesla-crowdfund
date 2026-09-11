@@ -9,6 +9,7 @@
   "main": "index.js",
   "scripts": {
     "compile": "hardhat compile",
+    "compare:bytecode": "node scripts/compare-bytecode.mjs",
     "test": "hardhat test",
     "setup": "node scripts/setup.mjs",
     "doctor": "node scripts/doctor.mjs",

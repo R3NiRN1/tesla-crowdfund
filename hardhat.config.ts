@@ -8,6 +8,7 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 const v2CompilerSettings = {
+  evmVersion: "paris" as const,
   optimizer: {
     enabled: true,
     runs: 200,
@@ -26,6 +27,9 @@ export default defineConfig({
       {
         version: "0.8.20",
         path: solcPath,
+        settings: {
+          evmVersion: "paris",
+        },
       },
     ],
     overrides: {
