@@ -1,7 +1,7 @@
 # Architecture decision: Hardhat 3 and Viem
 
 Date: 2026-09-11  
-Status: implementation spike  
+Status: implementation candidate; remote CI and human review pending
 Scope: root contract, deployment, test and backend chain-interaction toolchain
 
 ## Decision
@@ -59,6 +59,19 @@ from silently changing or blocking the build. The old compiler package pins
 `tmp@0.0.33`; npm narrowly overrides only that child dependency to patched
 `tmp@0.2.7`. Compilation and bytecode comparison must prove compatibility.
 
+Hardhat 3 otherwise selected a newer EVM target and changed every deployed
+artifact. The migration therefore pins `evmVersion: "paris"`, matching the
+pre-migration Hardhat 2 build. At code commit
+`a2762956b7cb78894b5a19ea59114f833073a1b9`, all six deployed artifacts have
+the same size and the same bytecode as PR #74 commit
+`9a6dcba887a553f42142ddbf4f52c177564a7662` after normalising only Solidity's
+embedded IPFS metadata hashes. The factory comparison normalises both its own
+metadata and the embedded campaign-creation metadata. No other byte differs.
+
+`npm run compare:bytecode` makes this check reproducible when
+`BYTECODE_BASELINE_ARTIFACTS` points to the baseline `artifacts/contracts`
+directory. It also fails if an artifact exceeds the EIP-170 24,576-byte limit.
+
 ## Acceptance evidence required
 
 - Clean root installation on a supported Node.js release.
@@ -72,6 +85,32 @@ from silently changing or blocking the build. The old compiler package pins
 - Contract deployed-bytecode sizes are checked against the pre-migration
   baseline and remain within normal EVM limits.
 - No test, scanner, audit threshold or release guardrail is weakened.
+
+## Local acceptance snapshot
+
+At code commit `a2762956b7cb78894b5a19ea59114f833073a1b9` on Node
+`24.19.0` and npm `11.9.0`:
+
+- a clean Hardhat 3 compile used exact solc `0.8.20` and EVM target `paris`;
+- all 18 contract tests passed under the Hardhat Node test runner;
+- all seven backend auth, persistence, operator, publication, route-security,
+  and proxy checks passed;
+- TypeScript validation of the root configuration and active scripts passed;
+- the chain-97 harness refused local chain 31337 before any transaction;
+- the V2 deploy and smoke scripts passed together on a persistent local chain
+  31337, including identity, code, token-accounting and version assertions;
+- release preflight passed with the documented CI setup-mode environment;
+- a clean frontend install reported zero vulnerabilities, and frontend lint,
+  TypeScript production validation and the Next.js production build passed;
+- root `npm audit --audit-level=high` passed its High/Critical threshold and
+  reported only three Moderate findings through Hardhat's `adm-zip` dependency;
+- npm offers only a forced Hardhat downgrade for those Moderate findings, so no
+  forced fix or risk acceptance was applied; and
+- the bytecode compatibility result is recorded above.
+
+Slither, CodeQL, history secret scanning, Dependency Review, and GitHub-hosted CI
+remain required before this candidate can be accepted. Dependency Review also
+remains blocked until a repository administrator enables Dependency Graph.
 
 Failure of any criterion keeps this branch an unmerged spike. Mainnet and BSC
 testnet transactions remain outside this decision.

@@ -32,12 +32,20 @@ compatible lockfile-only updates moved Browserslist to `4.28.9` and `@humanfs/no
 to `0.16.8`; a clean frontend install, audit, lint, TypeScript check, and production
 build then passed with zero reported frontend vulnerabilities.
 
-The root Hardhat 2 / ethers 5 build and deployment toolchain remains blocked: the
-exact-head audit reports 7 High, 4 Moderate, and 16 Low findings, and a non-forced
-audit fix proposes no compatible change. GitHub Dependency Review is also unavailable
-until a repository administrator enables Dependency Graph. Do not launch or merge on
-the basis of the clean frontend tree; resolve the root toolchain in a separate controlled
-migration, enable Dependency Graph, and rerun every gate at the resulting exact commit.
+The isolated Hardhat 3 / Viem candidate at code commit
+`a2762956b7cb78894b5a19ea59114f833073a1b9` removes the seven High findings
+from the Hardhat 2 / Ethers 5 tree. Its root audit passes the existing
+High/Critical threshold and reports three Moderate findings through Hardhat's
+`adm-zip` dependency; npm offers only a forced Hardhat downgrade, which is not an
+approved fix. Solidity remains pinned to 0.8.20 and EVM target `paris`; executable
+bytecode matches the PR #74 baseline after normalising only compiler metadata
+hashes.
+
+This local result does not clear the release gate. GitHub Dependency Review is
+still unavailable until a repository administrator enables Dependency Graph,
+and all GitHub-hosted security jobs plus unresolved human review threads must be
+re-evaluated at the published migration commit. Do not launch or merge on the
+basis of local audit evidence.
 
 ## Release Rules
 
