@@ -1,20 +1,22 @@
-import { ethers, network } from "hardhat";
+import { network } from "hardhat";
 
 const MAINNET_CHAIN_ID = 56;
 const MAINNET_CONFIRM_VALUE = "YES";
 
 export async function assertNetworkSafety(actionLabel: string) {
-  const expectedChainId = network.config.chainId;
-  const actualChainId = (await ethers.provider.getNetwork()).chainId;
+  const connection = await network.connect();
+  const publicClient = await connection.viem.getPublicClient();
+  const expectedChainId = connection.networkConfig.chainId;
+  const actualChainId = await publicClient.getChainId();
   console.log(
-    `${actionLabel}: Hardhat network=${network.name}, expectedChainId=${
+    `${actionLabel}: Hardhat network=${connection.networkName}, expectedChainId=${
       typeof expectedChainId === "number" ? expectedChainId : "unknown"
     }, actualChainId=${actualChainId}`
   );
 
   if (typeof expectedChainId === "number" && actualChainId !== expectedChainId) {
     throw new Error(
-      `${actionLabel}: RPC chainId ${actualChainId} does not match configured ${expectedChainId} for ${network.name}.`
+      `${actionLabel}: RPC chainId ${actualChainId} does not match configured ${expectedChainId} for ${connection.networkName}.`
     );
   }
 
@@ -25,5 +27,12 @@ export async function assertNetworkSafety(actionLabel: string) {
     );
   }
 
-  return { actualChainId, expectedChainId: typeof expectedChainId === "number" ? expectedChainId : null };
+  return {
+    actualChainId,
+    connection,
+    networkName: connection.networkName,
+    publicClient,
+    viem: connection.viem,
+    expectedChainId: typeof expectedChainId === "number" ? expectedChainId : null,
+  };
 }

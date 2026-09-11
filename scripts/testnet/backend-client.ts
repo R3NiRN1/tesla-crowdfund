@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-
-import { Wallet } from "ethers";
+import type { PrivateKeyAccount } from "viem/accounts";
 
 type JsonObject = Record<string, any>;
 
@@ -57,12 +56,12 @@ async function operatorSession(): Promise<string> {
   return cachedOperatorSession;
 }
 
-async function creatorSession(wallet: Wallet): Promise<string> {
+async function creatorSession(wallet: PrivateKeyAccount): Promise<string> {
   const challenge = await request("/auth/nonce", {
     method: "POST",
     body: { address: wallet.address },
   });
-  const signature = await wallet.signMessage(String(challenge.message));
+  const signature = await wallet.signMessage({ message: String(challenge.message) });
   const verified = await request("/auth/verify", {
     method: "POST",
     body: { address: wallet.address, nonce: challenge.nonce, signature },
@@ -72,7 +71,7 @@ async function creatorSession(wallet: Wallet): Promise<string> {
 }
 
 export async function prepareApprovedSubmission(
-  creator: Wallet,
+  creator: PrivateKeyAccount,
   input: {
     title: string;
     description: string;

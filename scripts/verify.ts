@@ -1,7 +1,9 @@
 import fs from "fs";
 import path from "path";
-import { artifacts, ethers, network } from "hardhat";
-import { assertNetworkSafety } from "./guardrails";
+import { fileURLToPath } from "node:url";
+import { artifacts } from "hardhat";
+import { encodeAbiParameters, parseAbiParameters } from "viem";
+import { assertNetworkSafety } from "./guardrails.js";
 
 type DeploymentFile = {
   schema: "tes-crowdfund-deployment/v2";
@@ -26,20 +28,21 @@ type VerifyConfig = {
   apiKey: string;
 };
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEPLOYMENTS_DIR = path.join(__dirname, "..", "deployments");
 const EXPECTED_FACTORY_VERSION = "2.0.0-alpha";
 
-function getVerifyConfig(): VerifyConfig {
+function getVerifyConfig(networkName: string): VerifyConfig {
   const apiKey = process.env.BSCSCAN_API_KEY;
   if (!apiKey) throw new Error("Missing BSCSCAN_API_KEY in environment.");
 
-  if (network.name === "bscMainnet") {
+  if (networkName === "bscMainnet") {
     return { apiUrl: "https://api.bscscan.com/api", browserUrl: "https://bscscan.com", apiKey };
   }
-  if (network.name === "bscTestnet") {
+  if (networkName === "bscTestnet") {
     return { apiUrl: "https://api-testnet.bscscan.com/api", browserUrl: "https://testnet.bscscan.com", apiKey };
   }
-  throw new Error(`Unsupported network for verification: ${network.name}`);
+  throw new Error(`Unsupported network for verification: ${networkName}`);
 }
 
 async function submitVerification(apiUrl: string, params: Record<string, string>) {
@@ -80,12 +83,18 @@ async function verifyContract(
   constructorTypes: string[],
   constructorValues: string[],
 ) {
-  const buildInfo = await artifacts.getBuildInfo(fullyQualifiedName);
-  if (!buildInfo) throw new Error(`Missing build info for ${fullyQualifiedName}. Run hardhat compile.`);
+  const buildInfoId = await artifacts.getBuildInfoId(fullyQualifiedName);
+  if (!buildInfoId) throw new Error(`Missing build info for ${fullyQualifiedName}. Run hardhat compile.`);
+  const buildInfoPath = await artifacts.getBuildInfoPath(buildInfoId);
+  if (!buildInfoPath) throw new Error(`Missing build info path for ${fullyQualifiedName}. Run hardhat compile.`);
+  const buildInfo = JSON.parse(fs.readFileSync(buildInfoPath, "utf8"));
 
   const optimizerEnabled = buildInfo.input.settings.optimizer?.enabled ?? false;
   const optimizerRuns = buildInfo.input.settings.optimizer?.runs ?? 200;
-  const constructorArguements = ethers.utils.defaultAbiCoder.encode(constructorTypes, constructorValues).slice(2);
+  const constructorArguements = encodeAbiParameters(
+    parseAbiParameters(constructorTypes.join(",")),
+    constructorValues as `0x${string}`[],
+  ).slice(2);
 
   const response = await submitVerification(config.apiUrl, {
     module: "contract",
@@ -115,9 +124,9 @@ async function verifyContract(
 }
 
 async function main() {
-  const { actualChainId } = await assertNetworkSafety("verify");
-  const config = getVerifyConfig();
-  const deploymentPath = path.join(DEPLOYMENTS_DIR, `${network.name}.json`);
+  const { actualChainId, networkName } = await assertNetworkSafety("verify");
+  const config = getVerifyConfig(networkName);
+  const deploymentPath = path.join(DEPLOYMENTS_DIR, `${networkName}.json`);
   if (!fs.existsSync(deploymentPath)) throw new Error(`Deployment file not found: ${deploymentPath}`);
 
   const deployment: DeploymentFile = JSON.parse(fs.readFileSync(deploymentPath, "utf-8"));
@@ -127,8 +136,8 @@ async function main() {
   if (deployment.chainId !== actualChainId) {
     throw new Error(`Deployment chain ${deployment.chainId} does not match connected chain ${actualChainId}.`);
   }
-  if (deployment.networkName !== network.name) {
-    throw new Error(`Deployment network ${deployment.networkName} does not match connected network ${network.name}.`);
+  if (deployment.networkName !== networkName) {
+    throw new Error(`Deployment network ${deployment.networkName} does not match connected network ${networkName}.`);
   }
   if (deployment.metadata.factoryVersion !== EXPECTED_FACTORY_VERSION) {
     throw new Error(

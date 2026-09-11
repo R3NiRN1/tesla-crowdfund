@@ -9,5 +9,7 @@
     "skipLibCheck": true,
     "moduleResolution": "nodenext",
     "outDir": "dist"
-  }
+  },
+  "include": ["hardhat.config.ts", "scripts/**/*.ts"],
+  "exclude": ["archive", "frontend", "node_modules"]
 }
