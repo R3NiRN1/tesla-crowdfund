@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import ethersPackage from "ethers";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 const tempDb = path.join(os.tmpdir(), `tesla-crowdfund-backend-check-${Date.now()}.json`);
 process.env.TESLA_CROWDFUND_BACKEND_DB = tempDb;
@@ -26,7 +26,7 @@ const {
   unpackBackupPayload,
   validateStoreSnapshot,
 } = await import("./persistence.mjs");
-const { ethers } = ethersPackage;
+const createWallet = () => privateKeyToAccount(generatePrivateKey());
 
 const validPayload = {
   creatorAddress: "0x1111111111111111111111111111111111111111",
@@ -61,21 +61,21 @@ try {
     issueWalletChallenge("0x0000000000000000000000000000000000000000"),
     "invalid-wallet-address",
   );
-  const wallet = ethers.Wallet.createRandom();
+  const wallet = createWallet();
   const nonce = await issueWalletChallenge(wallet.address);
   assert.ok(nonce.nonce);
   assert.ok(nonce.message.includes(nonce.nonce));
   assert.ok(nonce.message.includes(wallet.address.toLowerCase()));
   assert.ok(Date.parse(nonce.expiresAt) > Date.now());
 
-  const wrongWallet = ethers.Wallet.createRandom();
-  const wrongSignature = await wrongWallet.signMessage(nonce.message);
+  const wrongWallet = createWallet();
+  const wrongSignature = await wrongWallet.signMessage({ message: nonce.message });
   await expectCode(
     verifyWalletSignature(wallet.address, nonce.nonce, wrongSignature),
     "wallet-address-mismatch",
   );
 
-  const signature = await wallet.signMessage(nonce.message);
+  const signature = await wallet.signMessage({ message: nonce.message });
   const authenticated = await verifyWalletSignature(wallet.address, nonce.nonce, signature);
   assert.equal(authenticated.authenticated, true);
   assert.equal(authenticated.address, wallet.address.toLowerCase());
@@ -86,9 +86,9 @@ try {
 
   const superseded = await issueWalletChallenge(wallet.address);
   const active = await issueWalletChallenge(wallet.address);
-  const supersededSignature = await wallet.signMessage(superseded.message);
+  const supersededSignature = await wallet.signMessage({ message: superseded.message });
   assert.equal((await verifyWalletSignature(wallet.address, superseded.nonce, supersededSignature)).authenticated, true);
-  const activeSignature = await wallet.signMessage(active.message);
+  const activeSignature = await wallet.signMessage({ message: active.message });
   assert.equal((await verifyWalletSignature(wallet.address, active.nonce, activeSignature)).authenticated, true);
 
   assert.throws(

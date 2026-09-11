@@ -1,15 +1,20 @@
 import assert from "node:assert/strict";
-import ethersPackage from "ethers";
+import {
+  encodeAbiParameters,
+  encodeEventTopics,
+  encodeFunctionData,
+  getAddress,
+  parseAbiParameters,
+} from "viem";
 
 import {
   publicationVerificationInternals,
   verifyCampaignPublication,
 } from "./publication-verifier.mjs";
 
-const { ethers } = ethersPackage;
 const {
-  factoryInterface,
-  campaignInterface,
+  factoryAbi,
+  campaignAbi,
   EXPECTED_FACTORY_VERSION,
   EXPECTED_CAMPAIGN_VERSION,
 } = publicationVerificationInternals;
@@ -21,8 +26,8 @@ const creatorAddress = "0x4000000000000000000000000000000000000004";
 const campaignAddress = "0x5000000000000000000000000000000000000005";
 const otherAddress = "0x6000000000000000000000000000000000000006";
 const txHash = `0x${"a".repeat(64)}`;
-const blockNumber = 100;
-const blockTimestamp = 1_700_000_000;
+const blockNumber = 100n;
+const blockTimestamp = 1_700_000_000n;
 
 const submission = {
   metadataURI: "ipfs://approved-metadata",
@@ -44,32 +49,34 @@ const config = {
   confirmations: 3,
 };
 
-const expectedDeadline = ethers.BigNumber.from(blockTimestamp).add(submission.contractInput.duration);
+const expectedDeadline = blockTimestamp + BigInt(submission.contractInput.duration);
 
 function creationData(metadataURI = submission.metadataURI, senderDescription = submission.contractInput.description) {
-  return factoryInterface.encodeFunctionData("createCampaignWithMetadata", [
-    senderDescription,
-    metadataURI,
-    submission.contractInput.goal,
-    submission.contractInput.duration,
-    submission.contractInput.milestoneDescriptions,
-    submission.contractInput.milestoneAmounts,
-  ]);
+  return encodeFunctionData({
+    abi: factoryAbi,
+    functionName: "createCampaignWithMetadata",
+    args: [
+      senderDescription,
+      metadataURI,
+      BigInt(submission.contractInput.goal),
+      BigInt(submission.contractInput.duration),
+      submission.contractInput.milestoneDescriptions,
+      submission.contractInput.milestoneAmounts.map(BigInt),
+    ],
+  });
 }
 
 function creationLog({ token = tokenAddress, owner = creatorAddress, metadataURI = submission.metadataURI } = {}) {
-  const event = factoryInterface.getEvent("CampaignV2Created");
-  const encoded = factoryInterface.encodeEventLog(event, [
-    campaignAddress,
-    owner,
-    token,
-    arbitratorAddress,
-    submission.contractInput.description,
-    metadataURI,
-    submission.contractInput.goal,
-    expectedDeadline,
-  ]);
-  return { address: factoryAddress, topics: encoded.topics, data: encoded.data };
+  const topics = encodeEventTopics({
+    abi: factoryAbi,
+    eventName: "CampaignV2Created",
+    args: { campaign: campaignAddress, owner, token },
+  });
+  const data = encodeAbiParameters(
+    parseAbiParameters("address arbitrator, string description, string metadataURI, uint256 goal, uint256 deadline"),
+    [arbitratorAddress, submission.contractInput.description, metadataURI, BigInt(submission.contractInput.goal), expectedDeadline],
+  );
+  return { address: factoryAddress, topics, data };
 }
 
 function makeProvider(options = {}) {
@@ -77,14 +84,14 @@ function makeProvider(options = {}) {
     hash: txHash,
     to: options.transactionTo ?? factoryAddress,
     from: options.transactionFrom ?? creatorAddress,
-    data: options.transactionData ?? creationData(),
-    value: ethers.constants.Zero,
+    input: options.transactionData ?? creationData(),
+    value: 0n,
   };
   const receipt = options.receipt === null
     ? null
     : {
         transactionHash: txHash,
-        status: options.receiptStatus ?? 1,
+        status: options.receiptStatus ?? "success",
         to: options.receiptTo ?? factoryAddress,
         from: options.receiptFrom ?? creatorAddress,
         blockNumber,
@@ -92,8 +99,8 @@ function makeProvider(options = {}) {
       };
 
   return {
-    async getNetwork() {
-      return { chainId: options.chainId ?? config.chainId };
+    async getChainId() {
+      return options.chainId ?? config.chainId;
     },
     async getTransactionReceipt() {
       return receipt;
@@ -102,59 +109,33 @@ function makeProvider(options = {}) {
       return options.transaction === null ? null : transaction;
     },
     async getBlockNumber() {
-      return options.latestBlock ?? blockNumber + 5;
+      return options.latestBlock ?? blockNumber + 5n;
     },
     async getBlock() {
       return options.block === null ? null : { number: blockNumber, timestamp: blockTimestamp };
     },
-    async getCode(address) {
+    async getCode({ address }) {
       if (options.missingCodeAddress && address.toLowerCase() === options.missingCodeAddress.toLowerCase()) return "0x";
       return "0x60006000";
     },
-    async call(request) {
-      const target = request.to.toLowerCase();
-      const selector = request.data.slice(0, 10);
-
+    async readContract({ address, functionName }) {
+      const target = address.toLowerCase();
       if (target === factoryAddress.toLowerCase()) {
-        if (selector === factoryInterface.getSighash("CONTRACT_VERSION")) {
-          return factoryInterface.encodeFunctionResult("CONTRACT_VERSION", [options.factoryVersion ?? EXPECTED_FACTORY_VERSION]);
-        }
-        if (selector === factoryInterface.getSighash("token")) {
-          return factoryInterface.encodeFunctionResult("token", [options.factoryToken ?? tokenAddress]);
-        }
-        if (selector === factoryInterface.getSighash("arbitrator")) {
-          return factoryInterface.encodeFunctionResult("arbitrator", [options.factoryArbitrator ?? arbitratorAddress]);
-        }
+        if (functionName === "CONTRACT_VERSION") return options.factoryVersion ?? EXPECTED_FACTORY_VERSION;
+        if (functionName === "token") return options.factoryToken ?? tokenAddress;
+        if (functionName === "arbitrator") return options.factoryArbitrator ?? arbitratorAddress;
       }
-
       if (target === campaignAddress.toLowerCase()) {
-        if (selector === campaignInterface.getSighash("CONTRACT_VERSION")) {
-          return campaignInterface.encodeFunctionResult("CONTRACT_VERSION", [options.campaignVersion ?? EXPECTED_CAMPAIGN_VERSION]);
-        }
-        if (selector === campaignInterface.getSighash("owner")) {
-          return campaignInterface.encodeFunctionResult("owner", [options.campaignOwner ?? creatorAddress]);
-        }
-        if (selector === campaignInterface.getSighash("token")) {
-          return campaignInterface.encodeFunctionResult("token", [options.campaignToken ?? tokenAddress]);
-        }
-        if (selector === campaignInterface.getSighash("arbitrator")) {
-          return campaignInterface.encodeFunctionResult("arbitrator", [options.campaignArbitrator ?? arbitratorAddress]);
-        }
-        if (selector === campaignInterface.getSighash("goal")) {
-          return campaignInterface.encodeFunctionResult("goal", [options.campaignGoal ?? submission.contractInput.goal]);
-        }
-        if (selector === campaignInterface.getSighash("deadline")) {
-          return campaignInterface.encodeFunctionResult("deadline", [options.campaignDeadline ?? expectedDeadline]);
-        }
-        if (selector === campaignInterface.getSighash("description")) {
-          return campaignInterface.encodeFunctionResult("description", [options.campaignDescription ?? submission.contractInput.description]);
-        }
-        if (selector === campaignInterface.getSighash("milestoneCount")) {
-          return campaignInterface.encodeFunctionResult("milestoneCount", [options.milestoneCount ?? submission.contractInput.milestoneDescriptions.length]);
-        }
+        if (functionName === "CONTRACT_VERSION") return options.campaignVersion ?? EXPECTED_CAMPAIGN_VERSION;
+        if (functionName === "owner") return options.campaignOwner ?? creatorAddress;
+        if (functionName === "token") return options.campaignToken ?? tokenAddress;
+        if (functionName === "arbitrator") return options.campaignArbitrator ?? arbitratorAddress;
+        if (functionName === "goal") return BigInt(options.campaignGoal ?? submission.contractInput.goal);
+        if (functionName === "deadline") return BigInt(options.campaignDeadline ?? expectedDeadline);
+        if (functionName === "description") return options.campaignDescription ?? submission.contractInput.description;
+        if (functionName === "milestoneCount") return BigInt(options.milestoneCount ?? submission.contractInput.milestoneDescriptions.length);
       }
-
-      throw new Error(`unexpected eth_call target=${request.to} selector=${selector}`);
+      throw new Error(`unexpected readContract target=${address} function=${functionName}`);
     },
   };
 }
@@ -171,7 +152,7 @@ const verified = await verifyCampaignPublication({
   provider: makeProvider(),
 });
 assert.equal(verified.verifiedOnChain, true);
-assert.equal(verified.campaignAddress, ethers.utils.getAddress(campaignAddress));
+assert.equal(verified.campaignAddress, getAddress(campaignAddress));
 assert.equal(verified.factoryAddress, factoryAddress);
 assert.equal(verified.chainId, 97);
 assert.equal(verified.tokenAddress, tokenAddress);
@@ -216,7 +197,7 @@ await expectCode(
   "publish-campaign-state-mismatch",
 );
 await expectCode(
-  verifyCampaignPublication({ transactionHash: txHash, submission, creatorAddress, config, provider: makeProvider({ latestBlock: blockNumber + 1 }) }),
+  verifyCampaignPublication({ transactionHash: txHash, submission, creatorAddress, config, provider: makeProvider({ latestBlock: blockNumber + 1n }) }),
   "publish-insufficient-confirmations",
 );
 
