@@ -1,5 +1,11 @@
 # TeslaCoin Crowdfunding Reboot – Action Plan and Code Walkthrough
 
+> Historical design note: the setup commands and sample Ethers/Hardhat 2 code in
+> this report are not the active operational toolchain. Use
+> `ARCHITECTURE_DECISION_2026-09.md`, the root scripts, and the V2 runbooks for
+> current Hardhat 3 / Viem procedures. The V1 examples below remain unchanged as
+> historical context.
+
 ## 1 Context and Problem Statement
 
 TeslaCoin (TES) originally launched as a cryptocurrency to fund free‑energy research and later moved to the Binance Smart Chain (BSC) as a BEP‑20 token.  Unfortunately the project lost momentum after an exchange hack and the community evaporated.  A search of current aggregator sites shows that TeslaCoin has **no active markets** and is not recognised on major exchanges.  For example, Bitget notes that the price has not been updated and the token is “not widely recognised”【297771556190001†L88-L90】【297771556190001†L230-L234】, and the WEEX guide explains that TeslaCoin is *not listed*【529552180668222†L112-L118】.  In short, TES has essentially zero liquidity on public markets.  This reinforces the need to provide **real utility** to holders rather than simply promising speculative gains.

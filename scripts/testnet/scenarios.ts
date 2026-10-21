@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-import { BigNumber, Contract, Wallet } from "ethers";
-import { ethers } from "hardhat";
+import { network } from "hardhat";
+import { keccak256, parseEther, parseEventLogs, toBytes } from "viem";
+import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 
 import {
   assertCampaignIdentity,
@@ -14,12 +15,12 @@ import {
   requireCode,
   requireEligible,
   waitForSuccess,
-} from "./assertions";
+} from "./assertions.js";
 import {
   assertPublicPublication as assertBackendPublication,
   prepareApprovedSubmission,
   recordVerifiedPublication,
-} from "./backend-client";
+} from "./backend-client.js";
 import {
   HARNESS_SCHEMA,
   HarnessPhase,
@@ -30,28 +31,30 @@ import {
   markScenarioPhase,
   requireScenario,
   saveState,
-} from "./state";
+} from "./state.js";
 
 const DAY = 24 * 60 * 60;
 const LONG_DURATION = 90 * DAY;
 const UNDERFUNDED_DURATION = 5 * 60;
-const GOAL = ethers.utils.parseEther("100");
-const MILESTONE_AMOUNTS = [ethers.utils.parseEther("40"), ethers.utils.parseEther("60")];
+const GOAL = parseEther("100");
+const MILESTONE_AMOUNTS = [parseEther("40"), parseEther("60")];
 const MILESTONE_DESCRIPTIONS = ["Testnet milestone one", "Testnet milestone two"];
 
 type Roles = {
-  deployer: Wallet;
-  creator: Wallet;
-  arbitrator: Wallet;
-  backerA: Wallet;
-  backerB: Wallet;
-  outsider: Wallet;
+  deployer: PrivateKeyAccount;
+  creator: PrivateKeyAccount;
+  arbitrator: PrivateKeyAccount;
+  backerA: PrivateKeyAccount;
+  backerB: PrivateKeyAccount;
+  outsider: PrivateKeyAccount;
 };
 
 type Context = {
   roles: Roles;
-  factory: Contract;
-  token: Contract;
+  factory: any;
+  token: any;
+  publicClient: any;
+  viem: any;
   confirmations: number;
 };
 
@@ -63,16 +66,16 @@ type DeploymentFile = {
   metadata: { tokenSource: string; deployer: string; factoryVersion: string };
 };
 
-function requiredPrivateKey(name: string): string {
+function requiredPrivateKey(name: string): `0x${string}` {
   const value = String(process.env[name] || "").trim();
   if (!/^0x[a-fA-F0-9]{64}$/.test(value)) {
     throw new Error(`${name} must be supplied through the environment as a 32-byte testnet-only private key.`);
   }
-  return value;
+  return value as `0x${string}`;
 }
 
-function connectedWallet(name: string): Wallet {
-  return new ethers.Wallet(requiredPrivateKey(name), ethers.provider);
+function connectedWallet(name: string): PrivateKeyAccount {
+  return privateKeyToAccount(requiredPrivateKey(name));
 }
 
 function confirmations(): number {
@@ -114,7 +117,9 @@ function distinctRoles(roles: Roles): void {
 }
 
 export async function buildContext(): Promise<Context> {
-  await requireBscTestnet(ethers.provider);
+  const connection = await network.connect();
+  const publicClient = await connection.viem.getPublicClient();
+  await requireBscTestnet(publicClient);
   const deployment = loadDeployment();
   const roles: Roles = {
     deployer: connectedWallet("DEPLOYER_PRIVATE_KEY"),
@@ -129,15 +134,15 @@ export async function buildContext(): Promise<Context> {
   assert.equal(roles.arbitrator.address.toLowerCase(), deployment.contracts.Arbitrator.toLowerCase());
 
   await Promise.all([
-    requireCode(ethers.provider, "CampaignFactoryV2", deployment.contracts.FactoryV2),
-    requireCode(ethers.provider, "MockTES", deployment.contracts.Token),
+    requireCode(publicClient, "CampaignFactoryV2", deployment.contracts.FactoryV2),
+    requireCode(publicClient, "MockTES", deployment.contracts.Token),
   ]);
-  const factory = await ethers.getContractAt("CampaignFactoryV2", deployment.contracts.FactoryV2);
-  const token = await ethers.getContractAt("MockTES", deployment.contracts.Token);
+  const factory: any = await connection.viem.getContractAt("CampaignFactoryV2", deployment.contracts.FactoryV2 as `0x${string}`);
+  const token: any = await connection.viem.getContractAt("MockTES", deployment.contracts.Token as `0x${string}`);
   await assertFactoryIdentity(factory, deployment.contracts.Token, deployment.contracts.Arbitrator);
-  assert.equal((await token.owner()).toLowerCase(), roles.deployer.address.toLowerCase());
+  assert.equal((await token.read.owner()).toLowerCase(), roles.deployer.address.toLowerCase());
 
-  return { roles, factory, token, confirmations: confirmations() };
+  return { roles, factory, token, publicClient, viem: connection.viem, confirmations: confirmations() };
 }
 
 function createInitialState(context: Context): HarnessState {
@@ -175,10 +180,10 @@ function scenarioMetadata(name: ScenarioName): string {
   return `ipfs://teslastarter-v2-testnet-${name}`;
 }
 
-async function campaignAt(context: Context, state: HarnessState, name: ScenarioName): Promise<Contract> {
+async function campaignAt(context: Context, state: HarnessState, name: ScenarioName): Promise<any> {
   const record = requireScenario(state, name);
-  await requireCode(ethers.provider, `CampaignV2 ${name}`, record.address);
-  const campaign = await ethers.getContractAt("CampaignV2", record.address);
+  await requireCode(context.publicClient, `CampaignV2 ${name}`, record.address);
+  const campaign = await context.viem.getContractAt("CampaignV2", record.address as `0x${string}`);
   await assertCampaignIdentity(
     campaign,
     context.token.address,
@@ -193,22 +198,26 @@ async function createCampaign(
   state: HarnessState,
   name: ScenarioName,
   duration: number,
-): Promise<{ campaign: Contract; record: ScenarioRecord }> {
+): Promise<{ campaign: any; record: ScenarioRecord }> {
   const existing = state.scenarios[name];
   if (existing) return { campaign: await campaignAt(context, state, name), record: existing };
 
-  const transaction = await context.factory.connect(context.roles.creator).createCampaignWithMetadata(
+  const hash = await context.factory.write.createCampaignWithMetadata([
     scenarioDescription(name),
     scenarioMetadata(name),
     GOAL,
-    duration,
+    BigInt(duration),
     MILESTONE_DESCRIPTIONS,
     MILESTONE_AMOUNTS,
-  );
-  const receipt = await waitForSuccess(transaction, context.confirmations);
-  const created = receipt.events?.find((event: any) => event.event === "CampaignV2Created");
+  ], { account: context.roles.creator });
+  const receipt = await waitForSuccess(context.publicClient, hash, context.confirmations);
+  const [created]: any[] = parseEventLogs({
+    abi: context.factory.abi,
+    logs: receipt.logs,
+    eventName: "CampaignV2Created",
+  });
   assert.ok(created?.args?.campaign, `CampaignV2Created missing for ${name}`);
-  const campaign = await ethers.getContractAt("CampaignV2", created.args.campaign);
+  const campaign = await context.viem.getContractAt("CampaignV2", created.args.campaign);
   await assertCampaignIdentity(
     campaign,
     context.token.address,
@@ -217,9 +226,9 @@ async function createCampaign(
   );
   const record: ScenarioRecord = {
     address: campaign.address,
-    creationTransactionHash: transaction.hash,
-    creationBlock: receipt.blockNumber,
-    deadline: (await campaign.deadline()).toString(),
+    creationTransactionHash: hash,
+    creationBlock: Number(receipt.blockNumber),
+    deadline: (await campaign.read.deadline()).toString(),
     metadataURI: scenarioMetadata(name),
     phases: [],
   };
@@ -230,52 +239,57 @@ async function createCampaign(
 
 async function mintAndContribute(
   context: Context,
-  campaign: Contract,
-  backer: Wallet,
-  requested: BigNumber,
+  campaign: any,
+  backer: PrivateKeyAccount,
+  requested: bigint,
 ): Promise<void> {
-  await waitForSuccess(
-    await context.token.connect(context.roles.deployer).mint(backer.address, requested),
-    context.confirmations,
-  );
-  await waitForSuccess(await context.token.connect(backer).approve(campaign.address, requested), context.confirmations);
-  await waitForSuccess(await campaign.connect(backer).contribute(requested), context.confirmations);
+  await waitForSuccess(context.publicClient,
+    await context.token.write.mint([backer.address, requested], { account: context.roles.deployer }),
+    context.confirmations);
+  await waitForSuccess(context.publicClient,
+    await context.token.write.approve([campaign.address, requested], { account: backer }),
+    context.confirmations);
+  await waitForSuccess(context.publicClient,
+    await campaign.write.contribute([requested], { account: backer }),
+    context.confirmations);
   await assertEscrowAccounting(context.token, campaign);
 }
 
-async function fundExactly(context: Context, campaign: Contract): Promise<void> {
-  await mintAndContribute(context, campaign, context.roles.backerA, ethers.utils.parseEther("90"));
-  await mintAndContribute(context, campaign, context.roles.backerB, ethers.utils.parseEther("10"));
-  assert.equal((await campaign.totalContributed()).toString(), GOAL.toString());
-  assert.equal((await campaign.state()).toString(), "1");
+async function fundExactly(context: Context, campaign: any): Promise<void> {
+  await mintAndContribute(context, campaign, context.roles.backerA, parseEther("90"));
+  await mintAndContribute(context, campaign, context.roles.backerB, parseEther("10"));
+  assert.equal(await campaign.read.totalContributed(), GOAL);
+  assert.equal(await campaign.read.state(), 1);
 }
 
 function evidence(name: string, milestone: number): string {
-  return ethers.utils.keccak256(ethers.utils.toUtf8Bytes(`${name}:milestone:${milestone}`));
+  return keccak256(toBytes(`${name}:milestone:${milestone}`));
 }
 
-async function submitEvidence(context: Context, campaign: Contract, name: ScenarioName, milestone: number): Promise<void> {
-  await waitForSuccess(
-    await campaign.connect(context.roles.creator).submitMilestoneEvidence(
-      milestone,
+async function submitEvidence(context: Context, campaign: any, name: ScenarioName, milestone: number): Promise<void> {
+  await waitForSuccess(context.publicClient,
+    await campaign.write.submitMilestoneEvidence([
+      BigInt(milestone),
       `ipfs://teslastarter-v2-testnet-${name}-evidence-${milestone}`,
       evidence(name, milestone),
-    ),
-    context.confirmations,
-  );
+    ], { account: context.roles.creator }), context.confirmations);
 }
 
-async function challenge(context: Context, campaign: Contract, milestone: number): Promise<void> {
-  await waitForSuccess(await campaign.connect(context.roles.backerB).voteMilestone(milestone, 2), context.confirmations);
-  const details = await campaign.milestones(milestone);
-  assert.equal(details.challengeWeight.toString(), ethers.utils.parseEther("10").toString());
-  assert.equal(details.challengeWeight.toString(), (await campaign.challengeThresholdWeight()).toString());
+async function challenge(context: Context, campaign: any, milestone: number): Promise<void> {
+  await waitForSuccess(context.publicClient,
+    await campaign.write.voteMilestone([BigInt(milestone), 2], { account: context.roles.backerB }),
+    context.confirmations);
+  const details = await campaign.read.milestones([BigInt(milestone)]);
+  assert.equal(details[9], parseEther("10"));
+  assert.equal(details[9], await campaign.read.challengeThresholdWeight());
 }
 
-async function approve(context: Context, campaign: Contract, milestone: number): Promise<void> {
-  await waitForSuccess(await campaign.connect(context.roles.backerA).voteMilestone(milestone, 1), context.confirmations);
-  const details = await campaign.milestones(milestone);
-  assert.ok(details.approvalWeight.gt(0), "contributor approval weight was not recorded on-chain");
+async function approve(context: Context, campaign: any, milestone: number): Promise<void> {
+  await waitForSuccess(context.publicClient,
+    await campaign.write.voteMilestone([BigInt(milestone), 1], { account: context.roles.backerA }),
+    context.confirmations);
+  const details = await campaign.read.milestones([BigInt(milestone)]);
+  assert.ok(details[8] > 0n, "contributor approval weight was not recorded on-chain");
 }
 
 export async function seed(existing: HarnessState | null, context: Context): Promise<HarnessState> {
@@ -304,12 +318,12 @@ export async function seed(existing: HarnessState | null, context: Context): Pro
   };
   saveState(state);
 
-  const happyBStart = await context.token.balanceOf(context.roles.backerB.address);
-  await mintAndContribute(context, happy.campaign, context.roles.backerA, ethers.utils.parseEther("60"));
-  await mintAndContribute(context, happy.campaign, context.roles.backerB, ethers.utils.parseEther("50"));
-  assert.equal((await happy.campaign.totalContributed()).toString(), GOAL.toString());
-  assert.equal((await context.token.balanceOf(context.roles.backerB.address)).sub(happyBStart).toString(), ethers.utils.parseEther("10").toString());
-  assert.equal((await happy.campaign.state()).toString(), "1");
+  const happyBStart = await context.token.read.balanceOf([context.roles.backerB.address]);
+  await mintAndContribute(context, happy.campaign, context.roles.backerA, parseEther("60"));
+  await mintAndContribute(context, happy.campaign, context.roles.backerB, parseEther("50"));
+  assert.equal(await happy.campaign.read.totalContributed(), GOAL);
+  assert.equal((await context.token.read.balanceOf([context.roles.backerB.address])) - happyBStart, parseEther("10"));
+  assert.equal(await happy.campaign.read.state(), 1);
   await submitEvidence(context, happy.campaign, "happy", 0);
   await approve(context, happy.campaign, 0);
   markScenarioPhase(happy.record, "seed");
@@ -336,8 +350,8 @@ export async function seed(existing: HarnessState | null, context: Context): Pro
   markScenarioPhase(inactivity.record, "seed");
 
   const underfunded = await createCampaign(context, state, "underfunded", UNDERFUNDED_DURATION);
-  await mintAndContribute(context, underfunded.campaign, context.roles.backerA, ethers.utils.parseEther("40"));
-  assert.equal((await underfunded.campaign.state()).toString(), "0");
+  await mintAndContribute(context, underfunded.campaign, context.roles.backerA, parseEther("40"));
+  assert.equal(await underfunded.campaign.read.state(), 0);
   markScenarioPhase(underfunded.record, "seed");
 
   markPhase(state, "seed");
@@ -345,24 +359,25 @@ export async function seed(existing: HarnessState | null, context: Context): Pro
   return state;
 }
 
-async function latestTimestamp(): Promise<number> {
-  const block = await ethers.provider.getBlock("latest");
+async function latestTimestamp(context: Context): Promise<bigint> {
+  const block = await context.publicClient.getBlock();
   return block.timestamp;
 }
 
-async function refundIfNeeded(context: Context, campaign: Contract, backer: Wallet): Promise<void> {
-  if (await campaign.refundClaimed(backer.address)) return;
-  if ((await campaign.contributions(backer.address)).eq(0)) return;
-  await waitForSuccess(await campaign.connect(backer).refund(), context.confirmations);
+async function refundIfNeeded(context: Context, campaign: any, backer: PrivateKeyAccount): Promise<void> {
+  if (await campaign.read.refundClaimed([backer.address])) return;
+  if ((await campaign.read.contributions([backer.address])) === 0n) return;
+  await waitForSuccess(context.publicClient, await campaign.write.refund({ account: backer }), context.confirmations);
 }
 
 export async function fundingExpiry(context: Context, state: HarnessState): Promise<void> {
   if (state.completedPhases.includes("funding-expiry")) return;
   const record = requireScenario(state, "underfunded");
   const campaign = await campaignAt(context, state, "underfunded");
-  requireEligible(await campaign.deadline(), await latestTimestamp(), "underfunded campaign expiry");
-  if ((await campaign.state()).eq(0)) {
-    await waitForSuccess(await campaign.connect(context.roles.outsider).activateFundingFailure(), context.confirmations);
+  requireEligible(await campaign.read.deadline(), await latestTimestamp(context), "underfunded campaign expiry");
+  if ((await campaign.read.state()) === 0) {
+    await waitForSuccess(context.publicClient,
+      await campaign.write.activateFundingFailure({ account: context.roles.outsider }), context.confirmations);
   }
   await refundIfNeeded(context, campaign, context.roles.backerA);
   await assertTerminalEmpty(context.token, campaign);
@@ -371,11 +386,12 @@ export async function fundingExpiry(context: Context, state: HarnessState): Prom
   saveState(state);
 }
 
-async function finalizeAfterReview(context: Context, campaign: Contract, milestone: number, label: string): Promise<void> {
-  const details = await campaign.milestones(milestone);
-  requireEligible(details.challengeDeadline, await latestTimestamp(), label);
-  if (BigNumber.from(details.status).eq(1)) {
-    await waitForSuccess(await campaign.connect(context.roles.outsider).finalizeMilestone(milestone), context.confirmations);
+async function finalizeAfterReview(context: Context, campaign: any, milestone: number, label: string): Promise<void> {
+  const details = await campaign.read.milestones([BigInt(milestone)]);
+  requireEligible(details[6], await latestTimestamp(context), label);
+  if (details[2] === 1) {
+    await waitForSuccess(context.publicClient,
+      await campaign.write.finalizeMilestone([BigInt(milestone)], { account: context.roles.outsider }), context.confirmations);
   }
 }
 
@@ -385,7 +401,7 @@ export async function reviewOne(context: Context, state: HarnessState): Promise<
   const happyRecord = requireScenario(state, "happy");
   const happy = await campaignAt(context, state, "happy");
   await finalizeAfterReview(context, happy, 0, "happy milestone-one review");
-  if ((await happy.nextMilestone()).eq(1) && BigNumber.from((await happy.milestones(1)).status).eq(0)) {
+  if ((await happy.read.nextMilestone()) === 1n && (await happy.read.milestones([1n]))[2] === 0) {
     await submitEvidence(context, happy, "happy", 1);
     await approve(context, happy, 1);
   }
@@ -394,10 +410,11 @@ export async function reviewOne(context: Context, state: HarnessState): Promise<
   const disputedRecord = requireScenario(state, "disputed-approval");
   const disputed = await campaignAt(context, state, "disputed-approval");
   await finalizeAfterReview(context, disputed, 0, "disputed-approval review");
-  if (BigNumber.from((await disputed.milestones(0)).status).eq(2)) {
-    await waitForSuccess(await disputed.connect(context.roles.arbitrator).resolveDispute(0, true), context.confirmations);
+  if ((await disputed.read.milestones([0n]))[2] === 2) {
+    await waitForSuccess(context.publicClient,
+      await disputed.write.resolveDispute([0n, true], { account: context.roles.arbitrator }), context.confirmations);
   }
-  if ((await disputed.nextMilestone()).eq(1) && BigNumber.from((await disputed.milestones(1)).status).eq(0)) {
+  if ((await disputed.read.nextMilestone()) === 1n && (await disputed.read.milestones([1n]))[2] === 0) {
     await submitEvidence(context, disputed, "disputed-approval", 1);
     await approve(context, disputed, 1);
   }
@@ -406,7 +423,7 @@ export async function reviewOne(context: Context, state: HarnessState): Promise<
   const rejectedRecord = requireScenario(state, "later-rejection");
   const rejected = await campaignAt(context, state, "later-rejection");
   await finalizeAfterReview(context, rejected, 0, "later-rejection milestone-one review");
-  if ((await rejected.nextMilestone()).eq(1) && BigNumber.from((await rejected.milestones(1)).status).eq(0)) {
+  if ((await rejected.read.nextMilestone()) === 1n && (await rejected.read.milestones([1n]))[2] === 0) {
     await submitEvidence(context, rejected, "later-rejection", 1);
     await challenge(context, rejected, 1);
   }
@@ -415,7 +432,7 @@ export async function reviewOne(context: Context, state: HarnessState): Promise<
   const timeoutRecord = requireScenario(state, "arbitration-timeout");
   const timeout = await campaignAt(context, state, "arbitration-timeout");
   await finalizeAfterReview(context, timeout, 0, "arbitration-timeout review");
-  assert.equal((await timeout.milestones(0)).status.toString(), "2");
+  assert.equal((await timeout.read.milestones([0n]))[2], 2);
   markScenarioPhase(timeoutRecord, "review-1");
 
   markPhase(state, "review-1");
@@ -429,7 +446,7 @@ export async function reviewTwo(context: Context, state: HarnessState): Promise<
     const record = requireScenario(state, name);
     const campaign = await campaignAt(context, state, name);
     await finalizeAfterReview(context, campaign, 1, `${name} milestone-two review`);
-    assert.equal((await campaign.state()).toString(), "3");
+    assert.equal(await campaign.read.state(), 3);
     await assertTerminalEmpty(context.token, campaign);
     markScenarioPhase(record, "review-2");
   }
@@ -437,10 +454,11 @@ export async function reviewTwo(context: Context, state: HarnessState): Promise<
   const rejectedRecord = requireScenario(state, "later-rejection");
   const rejected = await campaignAt(context, state, "later-rejection");
   await finalizeAfterReview(context, rejected, 1, "later-rejection milestone-two review");
-  if (BigNumber.from((await rejected.milestones(1)).status).eq(2)) {
-    await waitForSuccess(await rejected.connect(context.roles.arbitrator).resolveDispute(1, false), context.confirmations);
+  if ((await rejected.read.milestones([1n]))[2] === 2) {
+    await waitForSuccess(context.publicClient,
+      await rejected.write.resolveDispute([1n, false], { account: context.roles.arbitrator }), context.confirmations);
   }
-  assert.equal((await rejected.refundPoolSnapshot()).toString(), ethers.utils.parseEther("60").toString());
+  assert.equal(await rejected.read.refundPoolSnapshot(), parseEther("60"));
   await refundIfNeeded(context, rejected, context.roles.backerA);
   await refundIfNeeded(context, rejected, context.roles.backerB);
   await assertTerminalEmpty(context.token, rejected);
@@ -454,10 +472,11 @@ export async function arbitrationTimeout(context: Context, state: HarnessState):
   if (state.completedPhases.includes("arbitration-timeout")) return;
   const record = requireScenario(state, "arbitration-timeout");
   const campaign = await campaignAt(context, state, "arbitration-timeout");
-  const details = await campaign.milestones(0);
-  assert.equal(details.status.toString(), "2", "milestone is not disputed");
-  requireEligible(details.disputeDeadline, await latestTimestamp(), "arbitration timeout");
-  await waitForSuccess(await campaign.connect(context.roles.outsider).expireDispute(0), context.confirmations);
+  const details = await campaign.read.milestones([0n]);
+  assert.equal(details[2], 2, "milestone is not disputed");
+  requireEligible(details[7], await latestTimestamp(context), "arbitration timeout");
+  await waitForSuccess(context.publicClient,
+    await campaign.write.expireDispute([0n], { account: context.roles.outsider }), context.confirmations);
   await refundIfNeeded(context, campaign, context.roles.backerA);
   await refundIfNeeded(context, campaign, context.roles.backerB);
   await assertTerminalEmpty(context.token, campaign);
@@ -470,9 +489,10 @@ export async function creatorInactivity(context: Context, state: HarnessState): 
   if (state.completedPhases.includes("creator-inactivity")) return;
   const record = requireScenario(state, "creator-inactivity");
   const campaign = await campaignAt(context, state, "creator-inactivity");
-  requireEligible(await campaign.milestoneSubmissionDeadline(), await latestTimestamp(), "creator inactivity timeout");
-  if ((await campaign.state()).eq(1)) {
-    await waitForSuccess(await campaign.connect(context.roles.outsider).cancelForMissingMilestone(), context.confirmations);
+  requireEligible(await campaign.read.milestoneSubmissionDeadline(), await latestTimestamp(context), "creator inactivity timeout");
+  if ((await campaign.read.state()) === 1) {
+    await waitForSuccess(context.publicClient,
+      await campaign.write.cancelForMissingMilestone({ account: context.roles.outsider }), context.confirmations);
   }
   await refundIfNeeded(context, campaign, context.roles.backerA);
   await refundIfNeeded(context, campaign, context.roles.backerB);

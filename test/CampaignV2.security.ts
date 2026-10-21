@@ -1,12 +1,26 @@
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 
-import { ethers, network } from "hardhat";
+import { network } from "hardhat";
+import { keccak256, maxUint256, parseEther, parseEventLogs, toBytes } from "viem";
 
 const DAY = 24 * 60 * 60;
+const connection = await network.create();
+const { viem } = connection;
+const publicClient = await viem.getPublicClient();
+const testClient = await viem.getTestClient();
+const wallets = await viem.getWalletClients();
+
+type Wallet = (typeof wallets)[number];
+
+async function send(transaction: Promise<`0x${string}`>) {
+  const hash = await transaction;
+  return publicClient.waitForTransactionReceipt({ hash });
+}
 
 async function advance(seconds: number) {
-  await network.provider.send("evm_increaseTime", [seconds]);
-  await network.provider.send("evm_mine");
+  await testClient.increaseTime({ seconds });
+  await testClient.mine({ blocks: 1 });
 }
 
 async function deployV2(options?: {
@@ -16,82 +30,67 @@ async function deployV2(options?: {
   milestoneAmounts?: string[];
   milestoneAmountUnits?: string[];
 }) {
-  const [deployer, creator, arbitrator, backerA, backerB, outsider] = await ethers.getSigners();
-  const tokenFactory = await ethers.getContractFactory("MockTES");
-  const token = await tokenFactory.deploy(deployer.address);
-  await token.deployed();
+  const [deployer, creator, arbitrator, backerA, backerB, outsider] = wallets;
+  const token = await viem.deployContract("MockTES", [deployer.account.address]);
+  const factory = await viem.deployContract("CampaignFactoryV2", [token.address, arbitrator.account.address]);
 
-  const factoryFactory = await ethers.getContractFactory("CampaignFactoryV2");
-  const factory = await factoryFactory.deploy(token.address, arbitrator.address);
-  await factory.deployed();
-
-  const goal = options?.goalUnits
-    ? ethers.BigNumber.from(options.goalUnits)
-    : ethers.utils.parseEther(options?.goal ?? "100");
+  const goal = options?.goalUnits ? BigInt(options.goalUnits) : parseEther(options?.goal ?? "100");
   const amounts = options?.milestoneAmountUnits
-    ? options.milestoneAmountUnits.map((value) => ethers.BigNumber.from(value))
-    : options?.milestoneAmounts?.map((value) => ethers.utils.parseEther(value)) ?? [
-        ethers.utils.parseEther("40"),
-        ethers.utils.parseEther("60"),
-      ];
+    ? options.milestoneAmountUnits.map(BigInt)
+    : options?.milestoneAmounts?.map((value) => parseEther(value)) ?? [parseEther("40"), parseEther("60")];
   const descriptions = amounts.map((_, index) => `Milestone ${index + 1}`);
 
-  const tx = await factory.connect(creator).createCampaignWithMetadata(
+  const receipt = await send(factory.write.createCampaignWithMetadata([
     "Teslastarter V2 campaign",
     "ipfs://teslastarter-v2-test",
     goal,
-    options?.duration ?? 7 * DAY,
+    BigInt(options?.duration ?? 7 * DAY),
     descriptions,
     amounts,
-  );
-  const receipt = await tx.wait();
-  const created = receipt.events?.find((event) => event.event === "CampaignV2Created");
-  assert.ok(created?.args?.campaign);
+  ], { account: creator.account }));
+  const [created] = parseEventLogs({ abi: factory.abi, logs: receipt.logs, eventName: "CampaignV2Created" });
+  assert.ok(created?.args.campaign);
 
-  const campaign = await ethers.getContractAt("CampaignV2", created.args.campaign);
+  const campaign = await viem.getContractAt("CampaignV2", created.args.campaign);
   return { deployer, creator, arbitrator, backerA, backerB, outsider, token, factory, campaign, goal };
 }
 
-async function fund(token: any, campaign: any, minter: any, backer: any, amount: string) {
-  const value = ethers.utils.parseEther(amount);
-  await token.connect(minter).mint(backer.address, value);
-  await token.connect(backer).approve(campaign.address, value);
-  await campaign.connect(backer).contribute(value);
-  return value;
+async function fund(token: any, campaign: any, minter: Wallet, backer: Wallet, amount: string) {
+  return fundUnits(token, campaign, minter, backer, parseEther(amount));
 }
 
-async function fundUnits(token: any, campaign: any, minter: any, backer: any, value: any) {
-  const amount = ethers.BigNumber.from(value);
-  await token.connect(minter).mint(backer.address, amount);
-  await token.connect(backer).approve(campaign.address, amount);
-  await campaign.connect(backer).contribute(amount);
+async function fundUnits(token: any, campaign: any, minter: Wallet, backer: Wallet, amount: bigint) {
+  await send(token.write.mint([backer.account.address, amount], { account: minter.account }));
+  await send(token.write.approve([campaign.address, amount], { account: backer.account }));
+  await send(campaign.write.contribute([amount], { account: backer.account }));
   return amount;
 }
 
 async function assertStandardTokenAccounting(token: any, campaign: any) {
-  const [state, balance, contributed, released, refunded] = await Promise.all([
-    campaign.state(),
-    token.balanceOf(campaign.address),
-    campaign.totalContributed(),
-    campaign.totalReleased(),
-    campaign.totalRefunded(),
+  const [state, balance, contributed, released, refunded, goal] = await Promise.all([
+    campaign.read.state(),
+    token.read.balanceOf([campaign.address]),
+    campaign.read.totalContributed(),
+    campaign.read.totalReleased(),
+    campaign.read.totalRefunded(),
+    campaign.read.goal(),
   ]);
 
-  assert.ok(contributed.lte(await campaign.goal()));
+  assert.ok(contributed <= goal);
   if (Number(state) === 2) {
     const [snapshot, remaining] = await Promise.all([
-      campaign.refundPoolSnapshot(),
-      campaign.refundPoolRemaining(),
+      campaign.read.refundPoolSnapshot(),
+      campaign.read.refundPoolRemaining(),
     ]);
-    assert.equal(refunded.add(remaining).toString(), snapshot.toString());
-    assert.equal(balance.toString(), remaining.toString());
+    assert.equal(refunded + remaining, snapshot);
+    assert.equal(balance, remaining);
   } else {
-    assert.equal(balance.add(released).add(refunded).toString(), contributed.toString());
+    assert.equal(balance + released + refunded, contributed);
   }
 }
 
 function evidence(label: string) {
-  return ethers.utils.keccak256(ethers.utils.toUtf8Bytes(label));
+  return keccak256(toBytes(label));
 }
 
 describe("CampaignV2 security invariants", function () {
@@ -99,49 +98,35 @@ describe("CampaignV2 security invariants", function () {
     const { deployer, backerA, backerB, token, campaign, goal } = await deployV2();
 
     await fund(token, campaign, deployer, backerA, "80");
-    const requested = ethers.utils.parseEther("50");
-    await token.connect(deployer).mint(backerB.address, requested);
-    await token.connect(backerB).approve(campaign.address, requested);
+    const requested = parseEther("50");
+    await send(token.write.mint([backerB.account.address, requested], { account: deployer.account }));
+    await send(token.write.approve([campaign.address, requested], { account: backerB.account }));
+    const receipt = await send(campaign.write.contribute([requested], { account: backerB.account }));
+    const [contributed] = parseEventLogs({ abi: campaign.abi, logs: receipt.logs, eventName: "Contributed" });
 
-    const tx = await campaign.connect(backerB).contribute(requested);
-    const receipt = await tx.wait();
-    const contributed = receipt.events?.find((event: any) => event.event === "Contributed");
-
-    assert.equal((await campaign.totalContributed()).toString(), goal.toString());
-    assert.equal((await token.balanceOf(campaign.address)).toString(), goal.toString());
-    assert.equal((await token.balanceOf(backerB.address)).toString(), ethers.utils.parseEther("30").toString());
-    assert.equal(contributed?.args?.requestedAmount.toString(), requested.toString());
-    assert.equal(contributed?.args?.acceptedAmount.toString(), ethers.utils.parseEther("20").toString());
-    assert.equal((await campaign.remainingToGoal()).toString(), "0");
-    assert.equal((await campaign.state()).toString(), "1"); // Milestones
-
-    await assert.rejects(
-      campaign.connect(backerA).contribute(1),
-      /InvalidState/,
-    );
+    assert.equal(await campaign.read.totalContributed(), goal);
+    assert.equal(await token.read.balanceOf([campaign.address]), goal);
+    assert.equal(await token.read.balanceOf([backerB.account.address]), parseEther("30"));
+    assert.equal(contributed?.args.requestedAmount, requested);
+    assert.equal(contributed?.args.acceptedAmount, parseEther("20"));
+    assert.equal(await campaign.read.remainingToGoal(), 0n);
+    assert.equal(await campaign.read.state(), 1);
+    await assert.rejects(campaign.write.contribute([1n], { account: backerA.account }), /InvalidState/);
   });
 
   it("refunds an underfunded campaign after the immutable deadline without reviving funding", async function () {
     const { deployer, backerA, token, campaign } = await deployV2({ duration: 60 });
     const contribution = await fund(token, campaign, deployer, backerA, "60");
-
     await advance(61);
-    await campaign.connect(backerA).refund();
+    await send(campaign.write.refund({ account: backerA.account }));
 
-    assert.equal((await campaign.state()).toString(), "2"); // Refunds
-    assert.equal((await campaign.totalContributed()).toString(), contribution.toString());
-    assert.equal((await campaign.totalRefunded()).toString(), contribution.toString());
-    assert.equal((await token.balanceOf(backerA.address)).toString(), contribution.toString());
-    assert.equal((await token.balanceOf(campaign.address)).toString(), "0");
-
-    await assert.rejects(
-      campaign.connect(backerA).contribute(1),
-      /InvalidState/,
-    );
-    await assert.rejects(
-      campaign.connect(backerA).refund(),
-      /AlreadyRefunded/,
-    );
+    assert.equal(await campaign.read.state(), 2);
+    assert.equal(await campaign.read.totalContributed(), contribution);
+    assert.equal(await campaign.read.totalRefunded(), contribution);
+    assert.equal(await token.read.balanceOf([backerA.account.address]), contribution);
+    assert.equal(await token.read.balanceOf([campaign.address]), 0n);
+    await assert.rejects(campaign.write.contribute([1n], { account: backerA.account }), /InvalidState/);
+    await assert.rejects(campaign.write.refund({ account: backerA.account }), /AlreadyRefunded/);
   });
 
   it("enforces sequential evidence gates and permissionless release only after review", async function () {
@@ -149,82 +134,58 @@ describe("CampaignV2 security invariants", function () {
     await fund(token, campaign, deployer, backerA, "50");
     await fund(token, campaign, deployer, backerB, "50");
 
-    await campaign.connect(creator).submitMilestoneEvidence(0, "ipfs://evidence-1", evidence("m1"));
+    await send(campaign.write.submitMilestoneEvidence([0n, "ipfs://evidence-1", evidence("m1")], { account: creator.account }));
     await assert.rejects(
-      campaign.connect(creator).submitMilestoneEvidence(1, "ipfs://evidence-2", evidence("m2")),
+      campaign.write.submitMilestoneEvidence([1n, "ipfs://evidence-2", evidence("m2")], { account: creator.account }),
       /MilestoneOutOfOrder/,
     );
-    await assert.rejects(
-      campaign.connect(outsider).finalizeMilestone(0),
-      /ReviewActive/,
-    );
-
+    await assert.rejects(campaign.write.finalizeMilestone([0n], { account: outsider.account }), /ReviewActive/);
     await advance(7 * DAY + 1);
-    await campaign.connect(outsider).finalizeMilestone(0);
+    await send(campaign.write.finalizeMilestone([0n], { account: outsider.account }));
 
-    assert.equal((await campaign.nextMilestone()).toString(), "1");
-    assert.equal((await campaign.totalReleased()).toString(), ethers.utils.parseEther("40").toString());
-    assert.equal((await token.balanceOf(creator.address)).toString(), ethers.utils.parseEther("40").toString());
-
-    await campaign.connect(creator).submitMilestoneEvidence(1, "ipfs://evidence-2", evidence("m2"));
+    assert.equal(await campaign.read.nextMilestone(), 1n);
+    assert.equal(await campaign.read.totalReleased(), parseEther("40"));
+    assert.equal(await token.read.balanceOf([creator.account.address]), parseEther("40"));
+    await send(campaign.write.submitMilestoneEvidence([1n, "ipfs://evidence-2", evidence("m2")], { account: creator.account }));
     await advance(7 * DAY + 1);
-    await campaign.connect(outsider).finalizeMilestone(1);
+    await send(campaign.write.finalizeMilestone([1n], { account: outsider.account }));
 
-    assert.equal((await campaign.state()).toString(), "3"); // Complete
-    assert.equal((await campaign.totalReleased()).toString(), ethers.utils.parseEther("100").toString());
-    assert.equal((await token.balanceOf(campaign.address)).toString(), "0");
+    assert.equal(await campaign.read.state(), 3);
+    assert.equal(await campaign.read.totalReleased(), parseEther("100"));
+    assert.equal(await token.read.balanceOf([campaign.address]), 0n);
   });
 
   it("keeps the full review window open, then routes a threshold challenge to arbitration", async function () {
     const { deployer, creator, arbitrator, backerA, backerB, outsider, token, campaign } = await deployV2();
     await fund(token, campaign, deployer, backerA, "90");
     await fund(token, campaign, deployer, backerB, "10");
+    await send(campaign.write.submitMilestoneEvidence([0n, "ipfs://evidence-1", evidence("challenge")], { account: creator.account }));
+    await send(campaign.write.voteMilestone([0n, 2], { account: backerB.account }));
 
-    await campaign.connect(creator).submitMilestoneEvidence(0, "ipfs://evidence-1", evidence("challenge"));
-    await campaign.connect(backerB).voteMilestone(0, 2); // Challenge
-
-    const beforeReviewEnds = await campaign.milestones(0);
-    assert.equal(beforeReviewEnds.status.toString(), "1"); // Review, not prematurely disputed
-    assert.equal(beforeReviewEnds.challengeWeight.toString(), ethers.utils.parseEther("10").toString());
-
-    await campaign.connect(backerA).voteMilestone(0, 1); // Approve still possible during full window
+    const beforeReviewEnds = await campaign.read.milestones([0n]);
+    assert.equal(beforeReviewEnds[2], 1);
+    assert.equal(beforeReviewEnds[9], parseEther("10"));
+    await send(campaign.write.voteMilestone([0n, 1], { account: backerA.account }));
     await advance(7 * DAY + 1);
-    await campaign.connect(outsider).finalizeMilestone(0);
+    await send(campaign.write.finalizeMilestone([0n], { account: outsider.account }));
 
-    const disputed = await campaign.milestones(0);
-    assert.equal(disputed.status.toString(), "2");
-    assert.ok(disputed.disputeDeadline.gt(0));
-
-    await assert.rejects(
-      campaign.connect(outsider).resolveDispute(0, true),
-      /NotArbitrator/,
-    );
-
-    await campaign.connect(arbitrator).resolveDispute(0, true);
-    assert.equal((await campaign.nextMilestone()).toString(), "1");
-    assert.equal((await token.balanceOf(creator.address)).toString(), ethers.utils.parseEther("40").toString());
+    const disputed = await campaign.read.milestones([0n]);
+    assert.equal(disputed[2], 2);
+    assert.ok(disputed[7] > 0n);
+    await assert.rejects(campaign.write.resolveDispute([0n, true], { account: outsider.account }), /NotArbitrator/);
+    await send(campaign.write.resolveDispute([0n, true], { account: arbitrator.account }));
+    assert.equal(await campaign.read.nextMilestone(), 1n);
+    assert.equal(await token.read.balanceOf([creator.account.address]), parseEther("40"));
   });
 
   it("rounds the 10% challenge threshold up without overflowing at uint256 boundaries", async function () {
-    const cases = [
-      ethers.BigNumber.from(1),
-      ethers.BigNumber.from(9_999),
-      ethers.BigNumber.from(10_000),
-      ethers.BigNumber.from(10_001),
-      ethers.constants.MaxUint256,
-    ];
-
-    for (const total of cases) {
+    for (const total of [1n, 9_999n, 10_000n, 10_001n, maxUint256]) {
       const { deployer, backerA, token, campaign } = await deployV2({
-        goalUnits: total.toString(),
-        milestoneAmountUnits: [total.toString()],
+        goalUnits: total.toString(), milestoneAmountUnits: [total.toString()],
       });
-
-      assert.equal((await campaign.challengeThresholdWeight()).toString(), "0");
+      assert.equal(await campaign.read.challengeThresholdWeight(), 0n);
       await fundUnits(token, campaign, deployer, backerA, total);
-
-      const expected = total.mul(1_000).add(9_999).div(10_000);
-      assert.equal((await campaign.challengeThresholdWeight()).toString(), expected.toString());
+      assert.equal(await campaign.read.challengeThresholdWeight(), (total * 1_000n + 9_999n) / 10_000n);
     }
   });
 
@@ -232,192 +193,143 @@ describe("CampaignV2 security invariants", function () {
     const { deployer, creator, arbitrator, backerA, backerB, outsider, token, campaign } = await deployV2();
     await fund(token, campaign, deployer, backerA, "33");
     await fund(token, campaign, deployer, backerB, "67");
-
-    await campaign.connect(creator).submitMilestoneEvidence(0, "ipfs://evidence-1", evidence("release-first"));
+    await send(campaign.write.submitMilestoneEvidence([0n, "ipfs://evidence-1", evidence("release-first")], { account: creator.account }));
     await advance(7 * DAY + 1);
-    await campaign.connect(outsider).finalizeMilestone(0);
-    assert.equal((await token.balanceOf(campaign.address)).toString(), ethers.utils.parseEther("60").toString());
+    await send(campaign.write.finalizeMilestone([0n], { account: outsider.account }));
+    assert.equal(await token.read.balanceOf([campaign.address]), parseEther("60"));
 
-    await campaign.connect(creator).submitMilestoneEvidence(1, "ipfs://evidence-2", evidence("reject-second"));
-    await campaign.connect(backerA).voteMilestone(1, 2); // 33% challenge
+    await send(campaign.write.submitMilestoneEvidence([1n, "ipfs://evidence-2", evidence("reject-second")], { account: creator.account }));
+    await send(campaign.write.voteMilestone([1n, 2], { account: backerA.account }));
     await advance(7 * DAY + 1);
-    await campaign.connect(outsider).finalizeMilestone(1);
-    await campaign.connect(arbitrator).resolveDispute(1, false);
+    await send(campaign.write.finalizeMilestone([1n], { account: outsider.account }));
+    await send(campaign.write.resolveDispute([1n, false], { account: arbitrator.account }));
 
-    assert.equal((await campaign.state()).toString(), "2");
-    assert.equal((await campaign.refundPoolSnapshot()).toString(), ethers.utils.parseEther("60").toString());
-
-    await campaign.connect(backerA).refund();
-    await campaign.connect(backerB).refund();
-
-    assert.equal((await token.balanceOf(backerA.address)).toString(), ethers.utils.parseEther("19.8").toString());
-    assert.equal((await token.balanceOf(backerB.address)).toString(), ethers.utils.parseEther("40.2").toString());
-    assert.equal((await campaign.refundPoolRemaining()).toString(), "0");
-    assert.equal((await token.balanceOf(campaign.address)).toString(), "0");
+    assert.equal(await campaign.read.state(), 2);
+    assert.equal(await campaign.read.refundPoolSnapshot(), parseEther("60"));
+    await send(campaign.write.refund({ account: backerA.account }));
+    await send(campaign.write.refund({ account: backerB.account }));
+    assert.equal(await token.read.balanceOf([backerA.account.address]), parseEther("19.8"));
+    assert.equal(await token.read.balanceOf([backerB.account.address]), parseEther("40.2"));
+    assert.equal(await campaign.read.refundPoolRemaining(), 0n);
+    assert.equal(await token.read.balanceOf([campaign.address]), 0n);
   });
 
   it("fails safe to refunds when arbitration times out", async function () {
     const { deployer, creator, backerA, backerB, outsider, token, campaign } = await deployV2();
     await fund(token, campaign, deployer, backerA, "90");
     await fund(token, campaign, deployer, backerB, "10");
-
-    await campaign.connect(creator).submitMilestoneEvidence(0, "ipfs://evidence-timeout", evidence("timeout"));
-    await campaign.connect(backerB).voteMilestone(0, 2);
+    await send(campaign.write.submitMilestoneEvidence([0n, "ipfs://evidence-timeout", evidence("timeout")], { account: creator.account }));
+    await send(campaign.write.voteMilestone([0n, 2], { account: backerB.account }));
     await advance(7 * DAY + 1);
-    await campaign.connect(outsider).finalizeMilestone(0);
-
+    await send(campaign.write.finalizeMilestone([0n], { account: outsider.account }));
     await advance(14 * DAY + 1);
-    await campaign.connect(outsider).expireDispute(0);
-
-    assert.equal((await campaign.state()).toString(), "2");
-    assert.equal((await campaign.refundPoolSnapshot()).toString(), ethers.utils.parseEther("100").toString());
+    await send(campaign.write.expireDispute([0n], { account: outsider.account }));
+    assert.equal(await campaign.read.state(), 2);
+    assert.equal(await campaign.read.refundPoolSnapshot(), parseEther("100"));
   });
 
   it("fails safe to refunds when a funded creator never submits the next milestone", async function () {
     const { deployer, backerA, backerB, outsider, token, campaign } = await deployV2();
     await fund(token, campaign, deployer, backerA, "50");
     await fund(token, campaign, deployer, backerB, "50");
-
     await advance(30 * DAY + 1);
-    await campaign.connect(outsider).cancelForMissingMilestone();
-
-    assert.equal((await campaign.state()).toString(), "2");
-    assert.equal((await campaign.refundPoolSnapshot()).toString(), ethers.utils.parseEther("100").toString());
+    await send(campaign.write.cancelForMissingMilestone({ account: outsider.account }));
+    assert.equal(await campaign.read.state(), 2);
+    assert.equal(await campaign.read.refundPoolSnapshot(), parseEther("100"));
   });
 
   it("allows only contributors to vote and prevents repeat voting", async function () {
     const { deployer, creator, backerA, backerB, outsider, token, campaign } = await deployV2();
     await fund(token, campaign, deployer, backerA, "50");
     await fund(token, campaign, deployer, backerB, "50");
-    await campaign.connect(creator).submitMilestoneEvidence(0, "ipfs://evidence-vote", evidence("vote"));
-
-    await assert.rejects(
-      campaign.connect(outsider).voteMilestone(0, 2),
-      /NotContributor/,
-    );
-
-    await campaign.connect(backerA).voteMilestone(0, 1);
-    await assert.rejects(
-      campaign.connect(backerA).voteMilestone(0, 2),
-      /AlreadyVoted/,
-    );
+    await send(campaign.write.submitMilestoneEvidence([0n, "ipfs://evidence-vote", evidence("vote")], { account: creator.account }));
+    await assert.rejects(campaign.write.voteMilestone([0n, 2], { account: outsider.account }), /NotContributor/);
+    await send(campaign.write.voteMilestone([0n, 1], { account: backerA.account }));
+    await assert.rejects(campaign.write.voteMilestone([0n, 2], { account: backerA.account }), /AlreadyVoted/);
   });
 
   it("keeps V1 and V2 explicitly separate and rejects invalid V2 milestone totals", async function () {
-    const [deployer, creator, arbitrator] = await ethers.getSigners();
-    const tokenFactory = await ethers.getContractFactory("MockTES");
-    const token = await tokenFactory.deploy(deployer.address);
-    await token.deployed();
-    const factoryFactory = await ethers.getContractFactory("CampaignFactoryV2");
-    const factory = await factoryFactory.deploy(token.address, arbitrator.address);
-    await factory.deployed();
-
-    assert.equal(await factory.CONTRACT_VERSION(), "2.0.0-alpha");
-
-    await assert.rejects(
-      factory.connect(creator).createCampaign(
-        "Invalid total",
-        ethers.utils.parseEther("100"),
-        DAY,
-        ["Only milestone"],
-        [ethers.utils.parseEther("99")],
-      ),
-      /InvalidMilestones/,
-    );
+    const [deployer, creator, arbitrator] = wallets;
+    const token = await viem.deployContract("MockTES", [deployer.account.address]);
+    const factory = await viem.deployContract("CampaignFactoryV2", [token.address, arbitrator.account.address]);
+    assert.equal(await factory.read.CONTRACT_VERSION(), "2.0.0-alpha");
+    await assert.rejects(factory.write.createCampaign([
+      "Invalid total", parseEther("100"), BigInt(DAY), ["Only milestone"], [parseEther("99")],
+    ], { account: creator.account }), /InvalidMilestones/);
   });
 
   it("rejects code-less factory tokens and exposes identity on each deployed campaign", async function () {
-    const [deployer, creator, arbitrator] = await ethers.getSigners();
-    const factoryFactory = await ethers.getContractFactory("CampaignFactoryV2");
+    const [deployer, , arbitrator] = wallets;
     await assert.rejects(
-      factoryFactory.deploy(deployer.address, arbitrator.address),
+      viem.deployContract("CampaignFactoryV2", [deployer.account.address, arbitrator.account.address]),
       /TokenHasNoCode/,
     );
-
-    const { campaign, factory } = await deployV2();
-    assert.equal(await factory.CONTRACT_VERSION(), "2.0.0-alpha");
-    assert.equal(await campaign.CONTRACT_VERSION(), "2.0.0-alpha");
-    assert.equal(await campaign.owner(), creator.address);
+    const { campaign, factory, creator } = await deployV2();
+    assert.equal(await factory.read.CONTRACT_VERSION(), "2.0.0-alpha");
+    assert.equal(await campaign.read.CONTRACT_VERSION(), "2.0.0-alpha");
+    assert.equal((await campaign.read.owner()).toLowerCase(), creator.account.address.toLowerCase());
   });
 
   it("preserves the exact cap across many backers and arbitrary contribution ordering", async function () {
-    const signers = await ethers.getSigners();
-    const { deployer, token, campaign, goal } = await deployV2({
-      goal: "100",
-      milestoneAmounts: ["100"],
-    });
-    const backers = signers.slice(3, 9);
+    const { deployer, token, campaign, goal } = await deployV2({ goal: "100", milestoneAmounts: ["100"] });
+    const backers = wallets.slice(3, 9);
     const requests = ["13", "7", "26", "9", "25", "50"];
-
     for (let index = 0; index < backers.length; index += 1) {
-      const requested = ethers.utils.parseEther(requests[index]);
-      await token.connect(deployer).mint(backers[index].address, requested);
-      await token.connect(backers[index]).approve(campaign.address, requested);
-      await campaign.connect(backers[index]).contribute(requested);
-      assert.ok((await campaign.totalContributed()).lte(goal));
+      const requested = parseEther(requests[index]);
+      await send(token.write.mint([backers[index].account.address, requested], { account: deployer.account }));
+      await send(token.write.approve([campaign.address, requested], { account: backers[index].account }));
+      await send(campaign.write.contribute([requested], { account: backers[index].account }));
+      assert.ok((await campaign.read.totalContributed()) <= goal);
       await assertStandardTokenAccounting(token, campaign);
     }
-
-    assert.equal((await campaign.totalContributed()).toString(), goal.toString());
-    assert.equal((await campaign.uniqueBackerCount()).toString(), backers.length.toString());
-    assert.equal(
-      (await token.balanceOf(backers[backers.length - 1].address)).toString(),
-      ethers.utils.parseEther("30").toString(),
-    );
+    assert.equal(await campaign.read.totalContributed(), goal);
+    assert.equal(await campaign.read.uniqueBackerCount(), BigInt(backers.length));
+    assert.equal(await token.read.balanceOf([backers.at(-1)!.account.address]), parseEther("30"));
   });
 
   it("conserves a refund pool exactly despite integer rounding and claim order", async function () {
-    const signers = await ethers.getSigners();
     const { deployer, creator, arbitrator, outsider, token, campaign } = await deployV2({
-      goalUnits: "7",
-      milestoneAmountUnits: ["2", "5"],
+      goalUnits: "7", milestoneAmountUnits: ["2", "5"],
     });
-    const [backerA, backerB, backerC] = signers.slice(3, 6);
-    await fundUnits(token, campaign, deployer, backerA, 2);
-    await fundUnits(token, campaign, deployer, backerB, 2);
-    await fundUnits(token, campaign, deployer, backerC, 3);
-
-    await campaign.connect(creator).submitMilestoneEvidence(0, "ipfs://rounding-1", evidence("rounding-1"));
+    const [backerA, backerB, backerC] = wallets.slice(3, 6);
+    await fundUnits(token, campaign, deployer, backerA, 2n);
+    await fundUnits(token, campaign, deployer, backerB, 2n);
+    await fundUnits(token, campaign, deployer, backerC, 3n);
+    await send(campaign.write.submitMilestoneEvidence([0n, "ipfs://rounding-1", evidence("rounding-1")], { account: creator.account }));
     await advance(7 * DAY + 1);
-    await campaign.connect(outsider).finalizeMilestone(0);
-    await campaign.connect(creator).submitMilestoneEvidence(1, "ipfs://rounding-2", evidence("rounding-2"));
-    await campaign.connect(backerA).voteMilestone(1, 2);
+    await send(campaign.write.finalizeMilestone([0n], { account: outsider.account }));
+    await send(campaign.write.submitMilestoneEvidence([1n, "ipfs://rounding-2", evidence("rounding-2")], { account: creator.account }));
+    await send(campaign.write.voteMilestone([1n, 2], { account: backerA.account }));
     await advance(7 * DAY + 1);
-    await campaign.connect(outsider).finalizeMilestone(1);
-    await campaign.connect(arbitrator).resolveDispute(1, false);
-
-    await campaign.connect(backerC).refund();
-    await assertStandardTokenAccounting(token, campaign);
-    await campaign.connect(backerA).refund();
-    await assertStandardTokenAccounting(token, campaign);
-    await campaign.connect(backerB).refund();
-    await assertStandardTokenAccounting(token, campaign);
-
-    assert.equal((await campaign.totalRefunded()).toString(), "5");
-    assert.equal((await campaign.refundPoolRemaining()).toString(), "0");
-    assert.equal((await token.balanceOf(campaign.address)).toString(), "0");
+    await send(campaign.write.finalizeMilestone([1n], { account: outsider.account }));
+    await send(campaign.write.resolveDispute([1n, false], { account: arbitrator.account }));
+    for (const backer of [backerC, backerA, backerB]) {
+      await send(campaign.write.refund({ account: backer.account }));
+      await assertStandardTokenAccounting(token, campaign);
+    }
+    assert.equal(await campaign.read.totalRefunded(), 5n);
+    assert.equal(await campaign.read.refundPoolRemaining(), 0n);
+    assert.equal(await token.read.balanceOf([campaign.address]), 0n);
   });
 
   it("rejects expired-window and unexpected-role calls, then preserves timeout recovery", async function () {
     const { deployer, creator, arbitrator, backerA, backerB, outsider, token, campaign } = await deployV2();
     await fund(token, campaign, deployer, backerA, "90");
     await fund(token, campaign, deployer, backerB, "10");
-
     await assert.rejects(
-      campaign.connect(outsider).submitMilestoneEvidence(0, "ipfs://forged", evidence("forged")),
+      campaign.write.submitMilestoneEvidence([0n, "ipfs://forged", evidence("forged")], { account: outsider.account }),
       /OwnableUnauthorizedAccount/,
     );
-    await campaign.connect(creator).submitMilestoneEvidence(0, "ipfs://window", evidence("window"));
-    await campaign.connect(backerB).voteMilestone(0, 2);
+    await send(campaign.write.submitMilestoneEvidence([0n, "ipfs://window", evidence("window")], { account: creator.account }));
+    await send(campaign.write.voteMilestone([0n, 2], { account: backerB.account }));
     await advance(7 * DAY + 1);
-    await assert.rejects(campaign.connect(backerA).voteMilestone(0, 1), /ReviewEnded/);
-    await campaign.connect(outsider).finalizeMilestone(0);
-    await assert.rejects(campaign.connect(creator).resolveDispute(0, true), /NotArbitrator/);
-
+    await assert.rejects(campaign.write.voteMilestone([0n, 1], { account: backerA.account }), /ReviewEnded/);
+    await send(campaign.write.finalizeMilestone([0n], { account: outsider.account }));
+    await assert.rejects(campaign.write.resolveDispute([0n, true], { account: creator.account }), /NotArbitrator/);
     await advance(14 * DAY + 1);
-    await assert.rejects(campaign.connect(arbitrator).resolveDispute(0, true), /ArbitrationExpired/);
-    await campaign.connect(outsider).expireDispute(0);
-    await assert.rejects(campaign.connect(outsider).expireDispute(0), /InvalidState/);
+    await assert.rejects(campaign.write.resolveDispute([0n, true], { account: arbitrator.account }), /ArbitrationExpired/);
+    await send(campaign.write.expireDispute([0n], { account: outsider.account }));
+    await assert.rejects(campaign.write.expireDispute([0n], { account: outsider.account }), /InvalidState/);
     await assertStandardTokenAccounting(token, campaign);
   });
 
@@ -425,56 +337,46 @@ describe("CampaignV2 security invariants", function () {
     const { deployer, creator, backerA, backerB, outsider, token, campaign } = await deployV2();
     await fund(token, campaign, deployer, backerA, "50");
     await fund(token, campaign, deployer, backerB, "50");
-    await campaign.connect(creator).submitMilestoneEvidence(0, "ipfs://released", evidence("released"));
+    await send(campaign.write.submitMilestoneEvidence([0n, "ipfs://released", evidence("released")], { account: creator.account }));
     await advance(7 * DAY + 1);
-    await campaign.connect(outsider).finalizeMilestone(0);
+    await send(campaign.write.finalizeMilestone([0n], { account: outsider.account }));
     await advance(30 * DAY + 1);
-
     await assert.rejects(
-      campaign.connect(creator).submitMilestoneEvidence(1, "ipfs://late", evidence("late")),
+      campaign.write.submitMilestoneEvidence([1n, "ipfs://late", evidence("late")], { account: creator.account }),
       /MilestoneSubmissionExpired/,
     );
-    await campaign.connect(outsider).cancelForMissingMilestone();
-    assert.equal((await campaign.refundPoolSnapshot()).toString(), ethers.utils.parseEther("60").toString());
+    await send(campaign.write.cancelForMissingMilestone({ account: outsider.account }));
+    assert.equal(await campaign.read.refundPoolSnapshot(), parseEther("60"));
     await assertStandardTokenAccounting(token, campaign);
   });
 
   it("rejects both inbound and outbound directional token-accounting mismatches", async function () {
-    const [deployer, creator, arbitrator, backer, outsider] = await ethers.getSigners();
-    const tokenFactory = await ethers.getContractFactory("MockDirectionalFeeToken");
-    const token = await tokenFactory.deploy();
-    await token.deployed();
-    const factoryFactory = await ethers.getContractFactory("CampaignFactoryV2");
-    const factory = await factoryFactory.deploy(token.address, arbitrator.address);
-    await factory.deployed();
-    const goal = ethers.utils.parseEther("10");
-    const create = await factory.connect(creator).createCampaign(
-      "Directional fee rejection",
-      goal,
-      DAY,
-      ["Only milestone"],
-      [goal],
-    );
-    const receipt = await create.wait();
-    const campaignAddress = receipt.events?.find((event: any) => event.event === "CampaignV2Created")?.args?.campaign;
-    const campaign = await ethers.getContractAt("CampaignV2", campaignAddress);
+    const [deployer, creator, arbitrator, backer, outsider] = wallets;
+    const token = await viem.deployContract("MockDirectionalFeeToken");
+    const factory = await viem.deployContract("CampaignFactoryV2", [token.address, arbitrator.account.address]);
+    const goal = parseEther("10");
+    const receipt = await send(factory.write.createCampaign([
+      "Directional fee rejection", goal, BigInt(DAY), ["Only milestone"], [goal],
+    ], { account: creator.account }));
+    const [created] = parseEventLogs({ abi: factory.abi, logs: receipt.logs, eventName: "CampaignV2Created" });
+    assert.ok(created?.args.campaign);
+    const campaign = await viem.getContractAt("CampaignV2", created.args.campaign);
 
-    await token.mint(backer.address, goal);
-    await token.connect(backer).approve(campaign.address, goal);
-    await token.setFeeSender(backer.address, true);
-    await assert.rejects(campaign.connect(backer).contribute(goal), /TokenAccountingMismatch/);
-    assert.equal((await campaign.totalContributed()).toString(), "0");
-    assert.equal((await token.balanceOf(campaign.address)).toString(), "0");
-
-    await token.setFeeSender(backer.address, false);
-    await campaign.connect(backer).contribute(goal);
-    await campaign.connect(creator).submitMilestoneEvidence(0, "ipfs://outbound", evidence("outbound"));
+    await send(token.write.mint([backer.account.address, goal], { account: deployer.account }));
+    await send(token.write.approve([campaign.address, goal], { account: backer.account }));
+    await send(token.write.setFeeSender([backer.account.address, true], { account: deployer.account }));
+    await assert.rejects(campaign.write.contribute([goal], { account: backer.account }), /TokenAccountingMismatch/);
+    assert.equal(await campaign.read.totalContributed(), 0n);
+    assert.equal(await token.read.balanceOf([campaign.address]), 0n);
+    await send(token.write.setFeeSender([backer.account.address, false], { account: deployer.account }));
+    await send(campaign.write.contribute([goal], { account: backer.account }));
+    await send(campaign.write.submitMilestoneEvidence([0n, "ipfs://outbound", evidence("outbound")], { account: creator.account }));
     await advance(7 * DAY + 1);
-    await token.setFeeSender(campaign.address, true);
-    await assert.rejects(campaign.connect(outsider).finalizeMilestone(0), /TokenAccountingMismatch/);
-    assert.equal((await campaign.state()).toString(), "1");
-    assert.equal((await campaign.totalReleased()).toString(), "0");
-    assert.equal((await token.balanceOf(campaign.address)).toString(), goal.toString());
-    assert.equal((await token.balanceOf(creator.address)).toString(), "0");
+    await send(token.write.setFeeSender([campaign.address, true], { account: deployer.account }));
+    await assert.rejects(campaign.write.finalizeMilestone([0n], { account: outsider.account }), /TokenAccountingMismatch/);
+    assert.equal(await campaign.read.state(), 1);
+    assert.equal(await campaign.read.totalReleased(), 0n);
+    assert.equal(await token.read.balanceOf([campaign.address]), goal);
+    assert.equal(await token.read.balanceOf([creator.account.address]), 0n);
   });
 });

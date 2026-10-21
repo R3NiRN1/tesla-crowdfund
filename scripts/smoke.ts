@@ -1,22 +1,11 @@
 import fs from "fs";
 import path from "path";
-import { ethers, network } from "hardhat";
-import { assertNetworkSafety } from "./guardrails";
+import { fileURLToPath } from "node:url";
+import { assertNetworkSafety } from "./guardrails.js";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EXPECTED_FACTORY_VERSION = "2.0.0-alpha";
 const DEPLOYMENTS_DIR = path.join(__dirname, "..", "deployments");
-
-const tokenAbi = [
-  "function name() view returns (string)",
-  "function symbol() view returns (string)",
-  "function decimals() view returns (uint8)",
-  "function totalSupply() view returns (uint256)",
-  "function balanceOf(address) view returns (uint256)",
-  "function allowance(address,address) view returns (uint256)",
-  "function transfer(address,uint256) returns (bool)",
-  "function owner() view returns (address)",
-  "function mint(address,uint256)",
-];
 
 type DeploymentFile = {
   schema: "tes-crowdfund-deployment/v2";
@@ -37,9 +26,9 @@ type DeploymentFile = {
 };
 
 async function main() {
-  const { actualChainId } = await assertNetworkSafety("smoke");
+  const { actualChainId, networkName, publicClient, viem } = await assertNetworkSafety("smoke");
 
-  const deploymentPath = path.join(DEPLOYMENTS_DIR, `${network.name}.json`);
+  const deploymentPath = path.join(DEPLOYMENTS_DIR, `${networkName}.json`);
   if (!fs.existsSync(deploymentPath)) {
     throw new Error(`Deployment file not found: ${deploymentPath}`);
   }
@@ -51,8 +40,8 @@ async function main() {
   if (deployment.chainId !== actualChainId) {
     throw new Error(`Deployment chain ${deployment.chainId} does not match connected chain ${actualChainId}.`);
   }
-  if (deployment.networkName !== network.name) {
-    throw new Error(`Deployment network ${deployment.networkName} does not match connected network ${network.name}.`);
+  if (deployment.networkName !== networkName) {
+    throw new Error(`Deployment network ${deployment.networkName} does not match connected network ${networkName}.`);
   }
   if (!["external", "MockTES"].includes(deployment.metadata.tokenSource)) {
     throw new Error(`Deployment record has unsupported token source: ${deployment.metadata.tokenSource}.`);
@@ -60,26 +49,26 @@ async function main() {
 
   const { FactoryV2: factoryAddress, Token: tokenAddress, Arbitrator: expectedArbitrator } = deployment.contracts;
   const [factoryCode, tokenCode] = await Promise.all([
-    ethers.provider.getCode(factoryAddress),
-    ethers.provider.getCode(tokenAddress),
+    publicClient.getCode({ address: factoryAddress as `0x${string}` }),
+    publicClient.getCode({ address: tokenAddress as `0x${string}` }),
   ]);
   if (!factoryCode || factoryCode === "0x") throw new Error(`FactoryV2 has no code at ${factoryAddress}.`);
   if (!tokenCode || tokenCode === "0x") throw new Error(`Token has no code at ${tokenAddress}.`);
 
-  const factory = await ethers.getContractAt("CampaignFactoryV2", factoryAddress);
-  const token = new ethers.Contract(tokenAddress, tokenAbi, ethers.provider);
+  const factory: any = await viem.getContractAt("CampaignFactoryV2", factoryAddress as `0x${string}`);
+  const token: any = await viem.getContractAt("MockTES", tokenAddress as `0x${string}`);
 
   const [version, factoryToken, arbitrator, campaignCount, name, symbol, decimals, totalSupply, factoryBalance, factoryAllowance] = await Promise.all([
-    factory.CONTRACT_VERSION(),
-    factory.token(),
-    factory.arbitrator(),
-    factory.campaignCount(),
-    token.name(),
-    token.symbol(),
-    token.decimals(),
-    token.totalSupply(),
-    token.balanceOf(factoryAddress),
-    token.allowance(factoryAddress, factoryAddress),
+    factory.read.CONTRACT_VERSION(),
+    factory.read.token(),
+    factory.read.arbitrator(),
+    factory.read.campaignCount(),
+    token.read.name(),
+    token.read.symbol(),
+    token.read.decimals(),
+    token.read.totalSupply(),
+    token.read.balanceOf([factoryAddress as `0x${string}`]),
+    token.read.allowance([factoryAddress as `0x${string}`, factoryAddress as `0x${string}`]),
   ]);
 
   if (version !== EXPECTED_FACTORY_VERSION || deployment.metadata.factoryVersion !== EXPECTED_FACTORY_VERSION) {
@@ -103,9 +92,9 @@ async function main() {
   // owner-only faucet plus ordinary ERC-20 transfer/balance accounting instead of
   // inventing a non-zero initial-supply requirement for production tokens.
   if (deployment.metadata.tokenSource === "MockTES") {
-    const [signer] = await ethers.getSigners();
-    const signerAddress = await signer.getAddress();
-    const owner = await token.owner();
+    const [signer] = await viem.getWalletClients();
+    const signerAddress = signer.account.address;
+    const owner = await token.read.owner();
     if (owner.toLowerCase() !== deployment.metadata.deployer.toLowerCase()) {
       throw new Error(`MockTES owner mismatch. Expected ${deployment.metadata.deployer}, got ${owner}.`);
     }
@@ -113,25 +102,27 @@ async function main() {
       throw new Error(`Connected signer ${signerAddress} is not the recorded MockTES owner ${owner}.`);
     }
 
-    const probeAmount = ethers.BigNumber.from(1);
-    const recipientBefore = await token.balanceOf(expectedArbitrator);
-    const supplyBefore = await token.totalSupply();
-    await (await token.connect(signer).mint(signerAddress, probeAmount)).wait();
-    await (await token.connect(signer).transfer(expectedArbitrator, probeAmount)).wait();
+    const probeAmount = 1n;
+    const recipientBefore = await token.read.balanceOf([expectedArbitrator as `0x${string}`]);
+    const supplyBefore = await token.read.totalSupply();
+    const mintHash = await token.write.mint([signerAddress, probeAmount], { account: signer.account });
+    await publicClient.waitForTransactionReceipt({ hash: mintHash });
+    const transferHash = await token.write.transfer([expectedArbitrator as `0x${string}`, probeAmount], { account: signer.account });
+    await publicClient.waitForTransactionReceipt({ hash: transferHash });
     const [supplyAfter, recipientAfter] = await Promise.all([
-      token.totalSupply(),
-      token.balanceOf(expectedArbitrator),
+      token.read.totalSupply(),
+      token.read.balanceOf([expectedArbitrator as `0x${string}`]),
     ]);
-    if (!supplyAfter.eq(supplyBefore.add(probeAmount))) {
+    if (supplyAfter !== supplyBefore + probeAmount) {
       throw new Error("MockTES mint probe did not increase total supply exactly.");
     }
-    if (!recipientAfter.eq(recipientBefore.add(probeAmount))) {
+    if (recipientAfter !== recipientBefore + probeAmount) {
       throw new Error("MockTES transfer probe did not increase recipient balance exactly.");
     }
   }
 
   console.log("V2 smoke OK:");
-  console.log("- Chain:", actualChainId, network.name);
+  console.log("- Chain:", actualChainId, networkName);
   console.log("- Token:", tokenAddress, name, symbol, `decimals=${decimals}`, `supply=${totalSupply.toString()}`);
   console.log("- ERC-20 reads:", `factoryBalance=${factoryBalance.toString()}`, `factoryAllowance=${factoryAllowance.toString()}`);
   console.log("- FactoryV2:", factoryAddress, version, `campaigns=${campaignCount.toString()}`);

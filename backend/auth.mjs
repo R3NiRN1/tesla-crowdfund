@@ -1,10 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
-import ethersPackage from "ethers";
+import { recoverMessageAddress } from "viem";
 
 import { appendAudit } from "./store.mjs";
 import { getRepository } from "./repository.mjs";
 
-const { ethers } = ethersPackage;
 const SESSION_TTL_MS = Number(process.env.WALLET_SESSION_TTL_MS || 30 * 60 * 1000);
 const MAX_SESSIONS = 10_000;
 
@@ -62,7 +61,10 @@ export async function verifyWalletSignature(address, nonce, signature) {
   if (!/^0x[a-fA-F0-9]{130}$/.test(suppliedSignature)) throw authError(401, "invalid-wallet-signature", "valid wallet signature is required");
   let recoveredAddress;
   try {
-    recoveredAddress = ethers.utils.verifyMessage(initial.message, suppliedSignature).toLowerCase();
+    recoveredAddress = (await recoverMessageAddress({
+      message: initial.message,
+      signature: suppliedSignature,
+    })).toLowerCase();
   } catch {
     throw authError(401, "invalid-wallet-signature", "wallet signature could not be verified");
   }

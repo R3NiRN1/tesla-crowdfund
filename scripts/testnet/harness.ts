@@ -1,5 +1,5 @@
-import { buildContext, seed, fundingExpiry, reviewOne, reviewTwo, arbitrationTimeout, creatorInactivity, verifyAll } from "./scenarios";
-import { loadState, parsePhase } from "./state";
+import { buildContext, seed, fundingExpiry, reviewOne, reviewTwo, arbitrationTimeout, creatorInactivity, verifyAll } from "./scenarios.js";
+import { loadState, parsePhase } from "./state.js";
 
 async function main(): Promise<void> {
   const phase = parsePhase(process.env.TESTNET_HARNESS_PHASE);

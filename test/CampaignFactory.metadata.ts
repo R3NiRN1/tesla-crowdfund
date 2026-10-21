@@ -1,61 +1,64 @@
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 
-import { ethers } from "hardhat";
+import { network } from "hardhat";
+import { parseEther, parseEventLogs } from "viem";
+
+const { viem } = await network.create();
+const publicClient = await viem.getPublicClient();
+const [deployer, creator] = await viem.getWalletClients();
+
+async function send(transaction: Promise<`0x${string}`>) {
+  const hash = await transaction;
+  return publicClient.waitForTransactionReceipt({ hash });
+}
 
 describe("CampaignFactory metadata path", function () {
   it("deploys a creator-owned campaign and emits its metadata URI", async function () {
-    const [deployer, creator] = await ethers.getSigners();
-    const tokenFactory = await ethers.getContractFactory("MockTES");
-    const token = await tokenFactory.deploy(deployer.address);
-    await token.deployed();
+    const token = await viem.deployContract("MockTES", [deployer.account.address]);
+    const factory = await viem.deployContract("CampaignFactory", [token.address]);
 
-    const factoryFactory = await ethers.getContractFactory("CampaignFactory");
-    const factory = await factoryFactory.deploy(token.address);
-    await factory.deployed();
-
-    const goal = ethers.utils.parseEther("100");
+    const goal = parseEther("100");
     const metadataURI = "ipfs://bafybeigdyrztcampaignmetadata";
-    const transaction = await factory.connect(creator).createCampaignWithMetadata(
+    const receipt = await send(factory.write.createCampaignWithMetadata([
       "Community charging site",
       metadataURI,
       goal,
-      7 * 24 * 60 * 60,
+      BigInt(7 * 24 * 60 * 60),
       ["Lease", "Installation"],
-      [ethers.utils.parseEther("40"), ethers.utils.parseEther("60")],
-    );
-    const receipt = await transaction.wait();
-    const metadataEvent = receipt.events?.find((event) => event.event === "CampaignCreatedWithMetadata");
+      [parseEther("40"), parseEther("60")],
+    ], { account: creator.account }));
+    const [metadataEvent] = parseEventLogs({
+      abi: factory.abi,
+      logs: receipt.logs,
+      eventName: "CampaignCreatedWithMetadata",
+    });
 
     assert.ok(metadataEvent?.args);
-    assert.equal(metadataEvent.args.owner, creator.address);
+    assert.equal(metadataEvent.args.owner.toLowerCase(), creator.account.address.toLowerCase());
     assert.equal(metadataEvent.args.metadataURI, metadataURI);
-    assert.equal((await factory.campaignCount()).toString(), "1");
+    assert.equal(await factory.read.campaignCount(), 1n);
 
-    const campaign = await ethers.getContractAt("Campaign", metadataEvent.args.campaign);
-    assert.equal(await campaign.owner(), creator.address);
-    assert.equal(await campaign.description(), "Community charging site");
-    assert.equal((await campaign.goal()).toString(), goal.toString());
-    assert.equal((await campaign.milestoneCount()).toString(), "2");
+    const campaign = await viem.getContractAt("Campaign", metadataEvent.args.campaign);
+    assert.equal((await campaign.read.owner()).toLowerCase(), creator.account.address.toLowerCase());
+    assert.equal(await campaign.read.description(), "Community charging site");
+    assert.equal(await campaign.read.goal(), goal);
+    assert.equal(await campaign.read.milestoneCount(), 2n);
   });
 
   it("rejects metadata-path campaigns whose milestones do not equal the goal", async function () {
-    const [deployer, creator] = await ethers.getSigners();
-    const tokenFactory = await ethers.getContractFactory("MockTES");
-    const token = await tokenFactory.deploy(deployer.address);
-    await token.deployed();
-    const factoryFactory = await ethers.getContractFactory("CampaignFactory");
-    const factory = await factoryFactory.deploy(token.address);
-    await factory.deployed();
+    const token = await viem.deployContract("MockTES", [deployer.account.address]);
+    const factory = await viem.deployContract("CampaignFactory", [token.address]);
 
     await assert.rejects(
-      factory.connect(creator).createCampaignWithMetadata(
+      factory.write.createCampaignWithMetadata([
         "Invalid milestone total",
         "ipfs://bafybeigdyrztinvalidmetadata",
-        ethers.utils.parseEther("100"),
-        3600,
+        parseEther("100"),
+        3600n,
         ["Only milestone"],
-        [ethers.utils.parseEther("90")],
-      ),
+        [parseEther("90")],
+      ], { account: creator.account }),
       /milestones!=goal/,
     );
   });

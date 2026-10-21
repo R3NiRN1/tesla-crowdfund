@@ -2,12 +2,14 @@
 {
   "compilerOptions": {
     "lib": ["es2023"],
-    "module": "node16",
+    "module": "nodenext",
     "target": "es2022",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "moduleResolution": "node16",
+    "moduleResolution": "nodenext",
     "outDir": "dist"
-  }
+  },
+  "include": ["hardhat.config.ts", "scripts/**/*.ts"],
+  "exclude": ["archive", "frontend", "node_modules"]
 }

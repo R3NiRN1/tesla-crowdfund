@@ -3,9 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import ethersPackage from "ethers";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
-const { ethers } = ethersPackage;
+const createWallet = () => privateKeyToAccount(generatePrivateKey());
 const port = 20000 + Math.floor(Math.random() * 15000);
 const baseUrl = `http://127.0.0.1:${port}`;
 const tempDb = path.join(os.tmpdir(), `tesla-crowdfund-route-security-${Date.now()}.json`);
@@ -82,7 +82,7 @@ async function authenticate(wallet) {
     body: { address: wallet.address },
   });
   assert.equal(nonceResult.response.status, 201);
-  const signature = await wallet.signMessage(nonceResult.payload.message);
+  const signature = await wallet.signMessage({ message: nonceResult.payload.message });
   const verifyResult = await jsonRequest("/auth/verify", {
     method: "POST",
     body: {
@@ -99,8 +99,8 @@ async function authenticate(wallet) {
 try {
   await waitForServer();
 
-  const owner = ethers.Wallet.createRandom();
-  const attacker = ethers.Wallet.createRandom();
+  const owner = createWallet();
+  const attacker = createWallet();
   const ownerToken = await authenticate(owner);
   const attackerToken = await authenticate(attacker);
   const operatorLogin = await jsonRequest("/operator/auth", {
