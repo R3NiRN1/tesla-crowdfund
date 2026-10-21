@@ -6,11 +6,12 @@ No thread has been manually resolved and no alert has been dismissed by this run
 ## Candidate and evidence
 
 - Security source: PR #74, `9a6dcba887a553f42142ddbf4f52c177564a7662`.
-- Toolchain/publication repairs: PR #75, `cfd9491e560e06856df5e06d0b963be5860172ea`.
-- Executed local support: PR #76, `514fdfa953917184b0c120d8080a761c2a52b812`.
-- [Functional CI: all seven jobs passed](https://github.com/R3NiRN1/tesla-crowdfund/actions/runs/39688210313).
-- [Security checks](https://github.com/R3NiRN1/tesla-crowdfund/actions/runs/39688210363):
-  Dependency Review, secrets, Slither and CodeQL passed; the full dependency audit failed.
+- Toolchain/publication and lint repair: PR #75, `39867c86a7e9ec2c47d550c937e0ff67d696a3e4`.
+- Executed local support: PR #76, `33d2638f538226584becd15f15f86fc8e324144d`.
+- [Support functional CI: all seven jobs passed](https://github.com/R3NiRN1/tesla-crowdfund/actions/runs/39692971379).
+- [Current toolchain security checks: all five passed](https://github.com/R3NiRN1/tesla-crowdfund/actions/runs/39695711010),
+  including the previously failing full dependency audit. Fresh dependent-head
+  results remain required; earlier failed audit runs are historical.
 - The clean local support commit passed all eleven integrated checks documented in
   [the local rehearsal](../LOCAL_REHEARSAL.md). Local time travel is not live BSC soak evidence.
 
@@ -55,11 +56,11 @@ Confirm or reject each proposal with source-specific rationale in PR #74. This
 packet is preparation for that review, not a security approval. Review the final
 integrated commit again if source or dependencies change.
 
-The separate [braces advisory](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)
-still has no patched release at this check. The full audit remains a failing gate;
-human review of the scanner threads does not make that dependency gate pass.
-Do not force a framework downgrade, suppress the audit or resolve threads just
-to make checks appear green.
+The [braces advisory](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) remains
+unpatched upstream, but this candidate no longer contains that dependency path.
+The [lint repair](../LINT_DEPENDENCY_REPAIR.md) uses a dependency-free directory
+lookup, not an audit waiver or framework downgrade. Root and full frontend
+audits pass. This does not supply independent human disposition of these threads.
 
 Public BSC testing additionally needs browser-wallet acceptance, a designated
 test host and separately authorized chain-97 deployment/rehearsal. No mainnet

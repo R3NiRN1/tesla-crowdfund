@@ -51,6 +51,25 @@ eleven-check local rehearsal. Its expanded regression suite passed 24 cases on
 Windows; one actual POSIX signal case is reserved for Linux CI. Final evidence
 is written without yielding to an interleaving signal callback.
 
+## Lint Gate Resolution
+
+The lint dependency gate was subsequently resolved by PR #75 commit
+`39867c86a7e9ec2c47d550c937e0ff67d696a3e4`, now included in this candidate.
+The registry fast-glob/micromatch/braces path was removed and replaced by a
+dependency-free, explicit-directory lookup scoped to the exact Next consumer.
+No lint rule or audit threshold was disabled. Full root and frontend audits
+report zero vulnerabilities; 43 local lint regression cases and ordinary lint
+passed. The toolchain commit's [functional CI](https://github.com/R3NiRN1/tesla-crowdfund/actions/runs/39695711200)
+and [all five security jobs](https://github.com/R3NiRN1/tesla-crowdfund/actions/runs/39695711010)
+passed, including the default Linux frontend build and full dependency audit.
+
+See [the repair contract](LINT_DEPENDENCY_REPAIR.md) for explicit-root-only
+configuration, effective-config guards and a separately documented pre-existing
+nested App Router navigation-lint limitation. Require fresh checks on this
+dependent candidate as well. This resolves the dependency blocker, not the
+thirteen independent human review threads, browser-wallet acceptance, test-host
+configuration or live BSC rehearsal. Decision remains LOCAL_ONLY.
+
 ## Initial Review Record
 
 ## Candidate and fixes
