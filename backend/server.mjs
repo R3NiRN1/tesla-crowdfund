@@ -35,6 +35,7 @@ import {
 
 const {
   port: PORT,
+  host: HOST,
   production: PRODUCTION,
   storageDriver: STORAGE_DRIVER,
   corsOrigin: CORS_ORIGIN,
@@ -535,7 +536,7 @@ if (PRODUCTION) {
   }
 }
 
-server.listen(PORT, () => {
-  console.log(`TES Crowdfund backend V2 listening on http://localhost:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`TES Crowdfund backend V2 listening on ${HOST || "default interfaces"}:${PORT}`);
   console.log(`Runtime mode: ${PRODUCTION ? "production guardrails enabled" : "local development"}; storage=${STORAGE_DRIVER}.`);
 });

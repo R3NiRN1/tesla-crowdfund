@@ -59,6 +59,9 @@ Architecture and planning docs:
 
 ## Alpha testing
 
+Automated local setup and role rehearsal: run `npm run test:local`.
+See [the local rehearsal guide](docs/LOCAL_REHEARSAL.md) for checks and scope.
+
 Current readiness decision and remaining gates:
 [First-round test readiness, 2026-10-21](docs/FIRST_ROUND_TEST_READINESS_2026-10-21.md).
 Use the V2 testnet runbook linked there before launching a shared test round.

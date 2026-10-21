@@ -103,6 +103,13 @@ try {
     () => getBackendConfig({ NODE_ENV: "development", CORS_ORIGIN: "https://app.example/path" }),
     (error) => error.code === "invalid-cors-origin",
   );
+  assert.equal(getBackendConfig({ BACKEND_HOST: "127.0.0.1" }).host, "127.0.0.1");
+  assert.equal(getBackendConfig({ BACKEND_HOST: "::1" }).host, "::1");
+  assert.equal(getBackendConfig({}).host, undefined);
+  assert.throws(
+    () => getBackendConfig({ BACKEND_HOST: "https://example.invalid" }),
+    (error) => error.code === "invalid-backend-host",
+  );
   const productionConfig = getBackendConfig({
     NODE_ENV: "production",
     STORAGE_DRIVER: "postgres",

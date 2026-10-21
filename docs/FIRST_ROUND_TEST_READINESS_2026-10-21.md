@@ -4,6 +4,74 @@ Decision: **HOLD shared BSC testing and branch consolidation.** Developer-only l
 rehearsal is available. The completed launch issue queue is not a current security
 approval, and `dev` still lacks the V2 security repairs.
 
+## Verified local support follow-up
+
+This section supersedes the initial review's local-infrastructure and repository
+settings gaps below; the original table remains historical evidence, not current
+test status. **Decision remains LOCAL_ONLY; shared launch is on hold.**
+
+- PR #76 commit `514fdfa953917184b0c120d8080a761c2a52b812` passed all
+  eleven integrated checks on a clean working tree. `npm run test:local`
+  provisions its own PostgreSQL, isolated databases, named operators, six ephemeral
+  client signers, MockTES/V2 and local chain. No manual local support setup is needed.
+- Persistence across backend restart and logical backup/restore into a separate
+  database passed. Private backups remain ignored and are not published.
+- [CI run 390](https://github.com/R3NiRN1/tesla-crowdfund/actions/runs/39688210313)
+  passed all seven functional jobs, including the default Linux frontend build
+  and the automated PostgreSQL/role rehearsal.
+- Repository vulnerability alerts were enabled; Dependency Review now passes.
+  [The same candidate's security run](https://github.com/R3NiRN1/tesla-crowdfund/actions/runs/39688210363)
+  passed secrets, Slither and CodeQL, but its full dependency audit still fails.
+- The unpatched `braces` advisory remains a technical blocker. The thirteen
+  unresolved security threads need an independent reviewer, not blind risk
+  acceptance from the project owner. The [review handoff](security/REVIEW_HANDOFF.md)
+  includes source-specific proposals and direct thread links.
+- Browser-wallet UX, public test-host evidence, actual chain-97 deployment and
+  real 7/14/30-day soak remain unperformed. Default Windows Turbopack still has
+  the recorded host failure; a Linux CI build is not a Windows repair.
+
+This is a stacked, unmerged candidate: #76 -> #75 -> #74 -> `dev`. Do not
+describe current `dev` as containing these repairs. Preserve branches until
+reviewed integration succeeds; never merge a failing audit.
+
+Local support hardening following the clean-commit rehearsal adds explicit
+loopback binding, restricted child-process environments, HTTP timeouts, bounded
+child termination and cleanup-failure reporting. Six failure-path regression
+tests passed, followed by a fresh eleven-check local rehearsal, all seven backend
+suites, all eighteen contract tests and frontend lint. See the resulting PR #76
+head checks for exact committed-candidate CI status. The unconfigured preflight
+still fails as intended; explicit setup-mode configuration passes with warnings.
+
+A subsequent focused agent review reproduced an early-exit hang in the
+embedded-postgres lifecycle wrapper and inherited PG client configuration.
+The support runner now uses pinned binary packages and native initdb/pg_ctl,
+with bounded control commands, private password-file cleanup, isolated parent
+configuration and idempotent interruption cleanup. The replacement passed a real
+eleven-check local rehearsal. Its expanded regression suite passed 24 cases on
+Windows; one actual POSIX signal case is reserved for Linux CI. Final evidence
+is written without yielding to an interleaving signal callback.
+
+## Lint Gate Resolution
+
+The lint dependency gate was subsequently resolved by PR #75 commit
+`39867c86a7e9ec2c47d550c937e0ff67d696a3e4`, now included in this candidate.
+The registry fast-glob/micromatch/braces path was removed and replaced by a
+dependency-free, explicit-directory lookup scoped to the exact Next consumer.
+No lint rule or audit threshold was disabled. Full root and frontend audits
+report zero vulnerabilities; 43 local lint regression cases and ordinary lint
+passed. The toolchain commit's [functional CI](https://github.com/R3NiRN1/tesla-crowdfund/actions/runs/39695711200)
+and [all five security jobs](https://github.com/R3NiRN1/tesla-crowdfund/actions/runs/39695711010)
+passed, including the default Linux frontend build and full dependency audit.
+
+See [the repair contract](LINT_DEPENDENCY_REPAIR.md) for explicit-root-only
+configuration, effective-config guards and a separately documented pre-existing
+nested App Router navigation-lint limitation. Require fresh checks on this
+dependent candidate as well. This resolves the dependency blocker, not the
+thirteen independent human review threads, browser-wallet acceptance, test-host
+configuration or live BSC rehearsal. Decision remains LOCAL_ONLY.
+
+## Initial Review Record
+
 ## Candidate and fixes
 
 The review started from PR #75 commit

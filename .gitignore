@@ -25,6 +25,7 @@ typechain/
 typechain-types/
 deployments/
 .testnet-runs/
+.local-rehearsal/
 gasReporterOutput.json
 
 # --- Next.js / React ---
