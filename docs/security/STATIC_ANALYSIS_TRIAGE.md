@@ -4,6 +4,21 @@ This record separates scanner evidence from security conclusions. Automated find
 must be reviewed against the exact source and release commit. A green scanner is not
 an audit, penetration test, or mainnet release approval.
 
+## Lint Dependency Follow-Up
+
+The toolchain candidate now removes the registry fast-glob/micromatch/braces
+path rather than waiving the unpatched braces advisory. A repository-owned,
+dependency-free adapter supports only existing explicit Next project roots.
+Default root discovery and lint rules are unchanged; unsupported glob
+configuration fails closed. The exact upstream consumer and installed module
+are guarded by regression tests.
+
+A clean Windows installation, full frontend audit (zero vulnerabilities),
+frontend lint and actual Next link-rule regression checks passed locally.
+Require current-head CI and security workflows before integration; older
+snapshots below remain historical. Human security review is still separate.
+See [the repair contract and maintenance notes](../LINT_DEPENDENCY_REPAIR.md).
+
 ## Enforcement policy
 
 - CI fails on new high or critical dependency advisories and on high-severity Slither findings.
