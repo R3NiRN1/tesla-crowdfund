@@ -8,6 +8,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createPublicClient, createWalletClient, defineChain, http, keccak256, parseEther, toBytes } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { cleanupLocalResources, localChildEnv, stopChild } from "./lib/local-process.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const support = createRequire(new URL("../tools/local-rehearsal/package.json", import.meta.url));
@@ -36,7 +37,7 @@ async function port() {
 }
 function start(args, env) {
   const child = spawn(process.execPath, args, {
-    cwd: root, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true,
+    cwd: root, env: localChildEnv(env), stdio: ["ignore", "pipe", "pipe"], windowsHide: true,
   });
   child.tail = "";
   // Hardhat prints public development keys: keep stdout out of the evidence bundle.
@@ -46,12 +47,7 @@ function start(args, env) {
   children.push(child);
   return child;
 }
-async function stop(child) {
-  if (child.exitCode !== null || child.signalCode) return;
-  const closed = new Promise((resolve) => child.once("exit", resolve));
-  child.kill();
-  await closed;
-}
+const stop = stopChild;
 async function runNode(args, env) {
   const child = start(args, env);
   const result = await new Promise((resolve, reject) => {
@@ -112,7 +108,7 @@ try {
     id: 31337, name: "Disposable local rehearsal", nativeCurrency: { name: "Test Ether", symbol: "ETH", decimals: 18 },
     rpcUrls: { default: { http: [rpcUrl] } },
   });
-  const client = createPublicClient({ chain: localChain, transport: http(rpcUrl) });
+  const client = createPublicClient({ chain: localChain, transport: http(rpcUrl, { timeout: 2000, retryCount: 0 }) });
   const chain = start(["node_modules/hardhat/dist/src/cli.js", "node", "--hostname", "127.0.0.1", "--port", String(rpcPort)], {});
   await waitUntil(async () => (await client.getChainId()) === 31337, chain);
   const roles = Object.fromEntries(["deployer", "creator", "arbitrator", "backerA", "backerB", "outsider"].map((name) => {
@@ -150,16 +146,18 @@ try {
   const apiUrl = "http://127.0.0.1:" + apiPort;
   const apiEnv = {
     NODE_ENV: "production", STORAGE_DRIVER: "postgres", DATABASE_URL: dbUrl("tes_app"),
-    PORT: String(apiPort), BACKEND_PORT: String(apiPort), CORS_ORIGIN: "http://127.0.0.1:3000",
+    PORT: String(apiPort), BACKEND_PORT: String(apiPort), BACKEND_HOST: "127.0.0.1", CORS_ORIGIN: "http://127.0.0.1:3000",
     BACKEND_RPC_URL: rpcUrl, BACKEND_CHAIN_ID: "31337", BACKEND_FACTORY_V2_ADDRESS: factory,
     BACKEND_TOKEN_ADDRESS: token, BACKEND_ARBITRATOR_ADDRESS: roles.arbitrator.account.address,
     BACKEND_PUBLISH_CONFIRMATIONS: "1", TRUSTED_PROXY_IPS: "",
   };
   let backend = start(["backend/server.mjs"], apiEnv);
-  await waitUntil(async () => (await fetch(apiUrl + "/health")).ok, backend);
+  const healthy = async () => (await fetch(apiUrl + "/health", { signal: AbortSignal.timeout(2000) })).ok;
+  await waitUntil(healthy, backend);
   async function request(route, { method = "GET", bearer, body, status = 200 } = {}) {
     const response = await fetch(apiUrl + route, {
-      method, headers: { "content-type": "application/json", ...(bearer ? { authorization: "Bearer " + bearer } : {}) },
+      method, signal: AbortSignal.timeout(10000),
+      headers: { "content-type": "application/json", ...(bearer ? { authorization: "Bearer " + bearer } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const payload = await response.json();
@@ -272,7 +270,7 @@ try {
   await check("durable sessions and public records survive backend restart", async () => {
     await stop(backend);
     backend = start(["backend/server.mjs"], apiEnv);
-    await waitUntil(async () => (await fetch(apiUrl + "/health")).ok, backend);
+    await waitUntil(healthy, backend);
     assert.equal((await request("/submissions/" + created.id, { bearer: creatorToken })).submission.status, "published");
     assert.equal((await request("/public/campaigns")).campaigns.length, 1);
     assert.ok((await request("/audit", { bearer: operatorToken })).auditLog.some((entry) => entry.actor?.kind === "operator"));
@@ -295,9 +293,16 @@ try {
   console.error(evidence.failure);
   process.exitCode = 1;
 } finally {
-  for (const child of [...children].reverse()) await stop(child);
-  if (repository) await repository.close();
-  if (database) await database.stop().catch(() => {});
+  const cleanupFailures = await cleanupLocalResources([
+    ...[...children].reverse().map((child) => ({ name: "child", close: () => stop(child) })),
+    ...(repository ? [{ name: "repository", close: () => repository.close() }] : []),
+    ...(database ? [{ name: "database", close: () => database.stop() }] : []),
+  ]);
+  if (cleanupFailures.length) {
+    evidence.status = "FAIL";
+    evidence.cleanupFailures = cleanupFailures.map(({ name, message }) => ({ name, message: safeMessage(message) }));
+    console.error("Local resource cleanup failed; see evidence.");
+  }
   evidence.finishedAt = new Date().toISOString();
   await writeFile(path.join(runDir, "evidence.json"), JSON.stringify(evidence, null, 2) + "\n", { mode: 0o600 });
   console.log("Evidence: " + path.join(runDir, "evidence.json"));

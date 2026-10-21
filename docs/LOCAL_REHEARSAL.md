@@ -32,6 +32,20 @@ remain in ignored .local-rehearsal directories; services are stopped at the end.
 A failed assertion exits nonzero. The --fail-after-provision option deliberately
 tests failure propagation and teardown; it must exit 1.
 
+The fixture backend explicitly binds BACKEND_HOST=127.0.0.1; the backend's
+existing default interface behavior is unchanged for other deployments.
+BACKEND_HOST accepts an explicit IPv4 or IPv6 bind address, not a URL.
+Child processes inherit only allowlisted operating-system environment entries
+plus their explicit local fixture configuration, not unrelated signing keys,
+database URLs, access tokens or Node startup options.
+
+Six built-in Node regression tests run before provisioning. They cover environment
+isolation, immediate process exit, forced shutdown, shutdown failure, failed spawn
+and cleanup continuation. A child that ignores termination is forcibly stopped;
+failure to stop is reported. Cleanup attempts every resource, and any cleanup error
+marks the run FAIL instead of being swallowed. HTTP probes and API requests have
+explicit timeouts. These checks do not constitute a general application audit.
+
 ## Evidence and scope
 
 Each run writes an ignored evidence.json containing the commit, dirty-tree flag,
@@ -48,3 +62,5 @@ Local time travel is restricted to chain 31337 and does not complete the live BS
 Use docs/BSC_TESTNET_RUNBOOK.md for a separately authorized chain-97 rehearsal.
 Shared test launch remains gated by the full dependency audit, human review and
 the designated test-host evidence. This command cannot approve or deploy a release.
+See [current readiness](FIRST_ROUND_TEST_READINESS_2026-10-21.md) and the
+[independent review handoff](security/REVIEW_HANDOFF.md) for evidence and open gates.

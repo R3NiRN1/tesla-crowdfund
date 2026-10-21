@@ -4,6 +4,46 @@ Decision: **HOLD shared BSC testing and branch consolidation.** Developer-only l
 rehearsal is available. The completed launch issue queue is not a current security
 approval, and `dev` still lacks the V2 security repairs.
 
+## Verified local support follow-up
+
+This section supersedes the initial review's local-infrastructure and repository
+settings gaps below; the original table remains historical evidence, not current
+test status. **Decision remains LOCAL_ONLY; shared launch is on hold.**
+
+- PR #76 commit `514fdfa953917184b0c120d8080a761c2a52b812` passed all
+  eleven integrated checks on a clean working tree. `npm run test:local`
+  provisions its own PostgreSQL, isolated databases, named operators, six ephemeral
+  client signers, MockTES/V2 and local chain. No manual local support setup is needed.
+- Persistence across backend restart and logical backup/restore into a separate
+  database passed. Private backups remain ignored and are not published.
+- [CI run 390](https://github.com/R3NiRN1/tesla-crowdfund/actions/runs/39688210313)
+  passed all seven functional jobs, including the default Linux frontend build
+  and the automated PostgreSQL/role rehearsal.
+- Repository vulnerability alerts were enabled; Dependency Review now passes.
+  [The same candidate's security run](https://github.com/R3NiRN1/tesla-crowdfund/actions/runs/39688210363)
+  passed secrets, Slither and CodeQL, but its full dependency audit still fails.
+- The unpatched `braces` advisory remains a technical blocker. The thirteen
+  unresolved security threads need an independent reviewer, not blind risk
+  acceptance from the project owner. The [review handoff](security/REVIEW_HANDOFF.md)
+  includes source-specific proposals and direct thread links.
+- Browser-wallet UX, public test-host evidence, actual chain-97 deployment and
+  real 7/14/30-day soak remain unperformed. Default Windows Turbopack still has
+  the recorded host failure; a Linux CI build is not a Windows repair.
+
+This is a stacked, unmerged candidate: #76 -> #75 -> #74 -> `dev`. Do not
+describe current `dev` as containing these repairs. Preserve branches until
+reviewed integration succeeds; never merge a failing audit.
+
+Local support hardening following the clean-commit rehearsal adds explicit
+loopback binding, restricted child-process environments, HTTP timeouts, bounded
+child termination and cleanup-failure reporting. Six failure-path regression
+tests passed, followed by a fresh eleven-check local rehearsal, all seven backend
+suites, all eighteen contract tests and frontend lint. See the resulting PR #76
+head checks for exact committed-candidate CI status. The unconfigured preflight
+still fails as intended; explicit setup-mode configuration passes with warnings.
+
+## Initial Review Record
+
 ## Candidate and fixes
 
 The review started from PR #75 commit

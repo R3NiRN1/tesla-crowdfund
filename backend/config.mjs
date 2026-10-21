@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { parseTrustedProxyIps } from "./proxy.mjs";
 
 function configError(code, message) {
@@ -8,6 +9,7 @@ function configError(code, message) {
 
 export function getBackendConfig(env = process.env) {
   const port = Number(env.PORT || env.BACKEND_PORT || 8787);
+  const host = String(env.BACKEND_HOST || "").trim() || undefined;
   const production = env.NODE_ENV === "production";
   const storageDriver = String(env.STORAGE_DRIVER || (env.DATABASE_URL ? "postgres" : "file")).trim();
   const databaseUrl = String(env.DATABASE_URL || "").trim();
@@ -18,6 +20,9 @@ export function getBackendConfig(env = process.env) {
     ? trustedProxyInput.split(",").map((item) => item.trim()).filter(Boolean)
     : [];
 
+  if (host && !isIP(host)) {
+    throw configError("invalid-backend-host", "BACKEND_HOST must be an IPv4 or IPv6 address");
+  }
   if (!Number.isSafeInteger(port) || port <= 0 || port > 65535) {
     throw configError("invalid-backend-port", "PORT or BACKEND_PORT must be an integer from 1 to 65535");
   }
@@ -50,5 +55,5 @@ export function getBackendConfig(env = process.env) {
     );
   }
 
-  return { port, production, storageDriver, databaseUrl, corsOrigin, trustedProxyIps };
+  return { port, host, production, storageDriver, databaseUrl, corsOrigin, trustedProxyIps };
 }
