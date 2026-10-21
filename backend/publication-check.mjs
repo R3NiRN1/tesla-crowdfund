@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import {
+  createPublicClient,
+  custom,
   encodeAbiParameters,
   encodeEventTopics,
   encodeFunctionData,
@@ -102,10 +104,12 @@ function makeProvider(options = {}) {
     async getChainId() {
       return options.chainId ?? config.chainId;
     },
-    async getTransactionReceipt() {
+    async getTransactionReceipt({ hash }) {
+      assert.equal(hash, txHash);
       return receipt;
     },
-    async getTransaction() {
+    async getTransaction({ hash }) {
+      assert.equal(hash, txHash);
       return options.transaction === null ? null : transaction;
     },
     async getBlockNumber() {
@@ -141,7 +145,11 @@ function makeProvider(options = {}) {
 }
 
 async function expectCode(promise, code) {
-  await assert.rejects(promise, (error) => error?.code === code);
+  await assert.rejects(promise, (error) => {
+    assert.equal(error?.code, code);
+    assert.doesNotThrow(() => JSON.stringify({ code: error.code, message: error.message, detail: error.detail }));
+    return true;
+  });
 }
 
 const verified = await verifyCampaignPublication({
@@ -159,6 +167,42 @@ assert.equal(verified.tokenAddress, tokenAddress);
 assert.equal(verified.factoryVersion, EXPECTED_FACTORY_VERSION);
 assert.equal(verified.campaignVersion, EXPECTED_CAMPAIGN_VERSION);
 assert.ok(verified.confirmations >= config.confirmations);
+
+// Exercise Viem's real actions so permissive provider fixtures cannot hide API drift.
+const transactionRequests = [];
+const transportProvider = createPublicClient({
+  transport: custom({
+    async request({ method, params }) {
+      if (method === "eth_chainId") return "0x61";
+      transactionRequests.push({ method, params });
+      throw new Error("transport fixture has no mined transaction");
+    },
+  }, { retryCount: 0 }),
+});
+await expectCode(
+  verifyCampaignPublication({ transactionHash: txHash, submission, creatorAddress, config, provider: transportProvider }),
+  "publish-rpc-unavailable",
+);
+assert.deepEqual(transactionRequests, [
+  { method: "eth_getTransactionReceipt", params: [txHash] },
+  { method: "eth_getTransactionByHash", params: [txHash] },
+]);
+
+for (const method of ["getChainId", "getTransactionReceipt", "getTransaction", "getBlockNumber", "getCode", "readContract", "getBlock"]) {
+  const provider = makeProvider();
+  provider[method] = async () => {
+    throw new Error("RPC request failed at https://fixture-user:fixture-secret@rpc.invalid.example/private-api-key");
+  };
+  await assert.rejects(
+    verifyCampaignPublication({ transactionHash: txHash, submission, creatorAddress, config, provider }),
+    (error) => {
+      assert.equal(error.code, "publish-rpc-unavailable", method);
+      assert.equal(error.statusCode, 503, method);
+      assert.doesNotMatch(`${error.message} ${JSON.stringify(error.detail)}`, /fixture-user|fixture-secret|private-api-key|rpc\.invalid\.example/);
+      return true;
+    },
+  );
+}
 
 await expectCode(
   verifyCampaignPublication({ transactionHash: txHash, submission, creatorAddress, config, provider: makeProvider({ receipt: null }) }),

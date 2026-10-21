@@ -30,8 +30,10 @@ const campaignAbi = parseAbi([
   "function milestoneCount() view returns (uint256)",
 ]);
 
+class PublicationVerificationError extends Error {}
+
 function verificationError(code, message, statusCode = 422, detail = {}) {
-  const error = new Error(message);
+  const error = new PublicationVerificationError(message);
   error.code = code;
   error.statusCode = statusCode;
   error.detail = detail;
@@ -166,7 +168,17 @@ function findCreationEvent(receipt, factoryAddress) {
   return matching[0];
 }
 
-export async function verifyCampaignPublication({ transactionHash, submission, creatorAddress, config, provider }) {
+export async function verifyCampaignPublication(input) {
+  try {
+    return await verifyPublicationEvidence(input);
+  } catch (error) {
+    if (error instanceof PublicationVerificationError) throw error;
+    // Provider errors can include credentials embedded in the server-owned RPC URL.
+    throw verificationError("publish-rpc-unavailable", "could not independently verify publication on the configured network", 503);
+  }
+}
+
+async function verifyPublicationEvidence({ transactionHash, submission, creatorAddress, config, provider }) {
   if (!/^0x[a-fA-F0-9]{64}$/.test(String(transactionHash || ""))) {
     throw verificationError("invalid-transaction-hash", "valid transactionHash is required", 400);
   }
@@ -180,8 +192,8 @@ export async function verifyCampaignPublication({ transactionHash, submission, c
   let chainId;
   try {
     chainId = await rpc.getChainId();
-  } catch (cause) {
-    throw verificationError("publish-rpc-unavailable", "could not resolve configured BSC network", 503, { cause: cause?.message });
+  } catch {
+    throw verificationError("publish-rpc-unavailable", "could not resolve configured BSC network", 503);
   }
   requireEqual(Number(chainId), verificationConfig.chainId, "publish-wrong-chain", "RPC network does not match configured publication chain");
 
@@ -189,11 +201,11 @@ export async function verifyCampaignPublication({ transactionHash, submission, c
   let transaction;
   try {
     [receipt, transaction] = await Promise.all([
-      rpc.getTransactionReceipt(transactionHash),
-      rpc.getTransaction(transactionHash),
+      rpc.getTransactionReceipt({ hash: transactionHash }),
+      rpc.getTransaction({ hash: transactionHash }),
     ]);
-  } catch (cause) {
-    throw verificationError("publish-rpc-unavailable", "could not retrieve publication transaction", 503, { cause: cause?.message });
+  } catch {
+    throw verificationError("publish-rpc-unavailable", "could not retrieve publication transaction", 503);
   }
   if (!receipt || !transaction) {
     throw verificationError("publish-transaction-not-found", "publication transaction was not found on the configured chain", 404);
@@ -217,7 +229,7 @@ export async function verifyCampaignPublication({ transactionHash, submission, c
     throw verificationError("publish-insufficient-confirmations", "publication transaction has not reached the configured confirmation threshold", 409, {
       required: verificationConfig.confirmations,
       confirmations,
-      blockNumber: receipt.blockNumber,
+      blockNumber: receipt.blockNumber.toString(),
     });
   }
 

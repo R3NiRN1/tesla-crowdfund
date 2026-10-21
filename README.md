@@ -59,6 +59,10 @@ Architecture and planning docs:
 
 ## Alpha testing
 
+Current readiness decision and remaining gates:
+[First-round test readiness, 2026-10-21](docs/FIRST_ROUND_TEST_READINESS_2026-10-21.md).
+Use the V2 testnet runbook linked there before launching a shared test round.
+
 Use [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md) to test the current alpha loop:
 backend campaign drafts, readiness validation, manual moderation, creator-wallet
 testnet publication, public trust signals, and external media references.
