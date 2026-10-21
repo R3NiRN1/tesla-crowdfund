@@ -4,7 +4,7 @@ Run from the repository root after the standard root npm ci:
 
     npm run test:local
 
-The command installs a separately locked PostgreSQL 16 support package, compiles
+The command installs separately locked PostgreSQL 16 binary packages, compiles
 the candidate and provisions its own local PostgreSQL cluster and Hardhat chain.
 No Docker installation, database setup, operator credential preparation, wallet
 creation, faucet funding or manually configured environment file is required.
@@ -39,12 +39,26 @@ Child processes inherit only allowlisted operating-system environment entries
 plus their explicit local fixture configuration, not unrelated signing keys,
 database URLs, access tokens or Node startup options.
 
-Six built-in Node regression tests run before provisioning. They cover environment
-isolation, immediate process exit, forced shutdown, shutdown failure, failed spawn
-and cleanup continuation. A child that ignores termination is forcibly stopped;
+Built-in Node regression tests run before provisioning. They cover environment
+isolation, process exit, forced shutdown, shutdown failure, failed spawn,
+PostgreSQL control and cleanup continuation. A child that ignores termination is forcibly stopped;
 failure to stop is reported. Cleanup attempts every resource, and any cleanup error
 marks the run FAIL instead of being swallowed. HTTP probes and API requests have
 explicit timeouts. These checks do not constitute a general application audit.
+
+Only Windows/Linux x64 are supported by this fixture. PostgreSQL runs through its
+own initdb/pg_ctl commands, not the embedded-postgres JavaScript lifecycle wrapper.
+That wrapper was removed after reproducing a hang when its process had already
+exited. Status checks and command timeouts now bound database teardown. An immediate
+shutdown fallback is treated as a failed rehearsal, not a clean shutdown.
+
+The disposable parent environment is sanitized too, so inherited PGSSLMODE,
+PGOPTIONS and other deployment settings cannot alter the fixture's clients.
+Handled SIGINT/SIGTERM signals abort provisioning, stop owned services and write
+failure evidence through one idempotent cleanup path. The actual parent-targeted
+POSIX signal test runs in Linux CI; Windows skips that platform-specific test.
+Force-killing the parent (including Windows TerminateProcess) cannot execute
+JavaScript cleanup and is not covered by that guarantee.
 
 ## Evidence and scope
 

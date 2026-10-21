@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { EventEmitter } from "node:events";
+import { EventEmitter, once } from "node:events";
+import { spawn } from "node:child_process";
 import { test } from "node:test";
-import { cleanupLocalResources, localChildEnv, stopChild } from "./lib/local-process.mjs";
+import { cleanupLocalResources, localChildEnv, registerLocalTermination, stopChild } from "./lib/local-process.mjs";
 
 test("local children receive only operating-system context and explicit fixture configuration", () => {
   const env = localChildEnv({ DATABASE_URL: "local-fixture" }, {
@@ -59,4 +60,75 @@ test("cleanup attempts every resource and records each failure", async () => {
   ]);
   assert.deepEqual(closed, ["child", "repository", "database"]);
   assert.deepEqual(failures, [{ name: "child", message: "child failed" }, { name: "database", message: "database failed" }]);
+});
+test("termination aborts work and runs cleanup exactly once before exiting", async () => {
+  const events = new EventEmitter();
+  const controller = new AbortController();
+  const calls = [];
+  let finish;
+  const exited = new Promise((resolve) => { finish = resolve; });
+  const remove = registerLocalTermination({
+    events, abort: () => controller.abort(),
+    onSignal: (signal) => calls.push(signal),
+    cleanup: async () => { calls.push("cleanup"); },
+    exit: (code) => { calls.push(code); finish(); },
+  });
+  events.emit("SIGTERM");
+  events.emit("SIGINT");
+  await exited;
+  assert.equal(controller.signal.aborted, true);
+  assert.deepEqual(calls, ["SIGTERM", "cleanup", 143]);
+  remove();
+  assert.equal(events.listenerCount("SIGTERM"), 0);
+  assert.equal(events.listenerCount("SIGINT"), 0);
+});
+
+test("termination reports cleanup rejection as failure", async () => {
+  const events = new EventEmitter();
+  let finish;
+  const exited = new Promise((resolve) => { finish = resolve; });
+  const remove = registerLocalTermination({
+    events, abort: () => {}, onSignal: () => {},
+    cleanup: async () => { throw new Error("cleanup failed"); },
+    exit: finish,
+  });
+  events.emit("SIGINT");
+  assert.equal(await exited, 1);
+  remove();
+});
+
+test("POSIX parent-targeted SIGTERM reaps both owned children", {
+  skip: process.platform === "win32", timeout: 15000,
+}, async () => {
+  const code = `
+    import { spawn } from "node:child_process";
+    import { registerLocalTermination, stopChild } from "./scripts/lib/local-process.mjs";
+    const children = [0,1].map(() => spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {stdio:"ignore"}));
+    registerLocalTermination({
+      onSignal: () => {}, abort: () => {},
+      cleanup: async () => { for(const child of children) await stopChild(child); },
+    });
+    process.send(children.map(child => child.pid));
+    setInterval(()=>{},1000);
+  `;
+  const parent = spawn(process.execPath, ["--input-type=module", "-e", code], {
+    cwd: new URL("../", import.meta.url), env: localChildEnv(),
+    stdio: ["ignore", "ignore", "ignore", "ipc"],
+  });
+  let pids = [];
+  try {
+    [pids] = await once(parent, "message", { signal: AbortSignal.timeout(5000) });
+    const exited = once(parent, "exit", { signal: AbortSignal.timeout(7000) });
+    parent.kill("SIGTERM");
+    const [exitCode] = await exited;
+    assert.equal(exitCode, 143);
+    for (const pid of pids) {
+      assert.throws(() => process.kill(pid, 0), (error) => error.code === "ESRCH");
+    }
+  } finally {
+    if (parent.exitCode === null && !parent.signalCode) parent.kill("SIGKILL");
+    for (const pid of pids) {
+      try { process.kill(pid, "SIGKILL"); } catch (error) { if (error.code !== "ESRCH") throw error; }
+    }
+  }
 });

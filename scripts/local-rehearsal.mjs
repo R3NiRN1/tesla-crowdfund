@@ -3,16 +3,23 @@ import { randomBytes } from "node:crypto";
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:net";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createPublicClient, createWalletClient, defineChain, http, keccak256, parseEther, toBytes } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { cleanupLocalResources, localChildEnv, stopChild } from "./lib/local-process.mjs";
+import { cleanupLocalResources, localChildEnv, registerLocalTermination, stopChild } from "./lib/local-process.mjs";
+import { LocalPostgres } from "./lib/local-postgres.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const support = createRequire(new URL("../tools/local-rehearsal/package.json", import.meta.url));
-const { default: EmbeddedPostgres } = await import(pathToFileURL(support.resolve("embedded-postgres")).href);
+const platformPackage = { win32: "@embedded-postgres/windows-x64", linux: "@embedded-postgres/linux-x64" }[process.platform];
+if (!platformPackage || process.arch !== "x64") throw new Error("Local rehearsal supports Windows/Linux x64 only");
+const binaries = await import(pathToFileURL(support.resolve(platformPackage)).href);
+// Sanitize this disposable process too: pg clients otherwise inherit PG* settings.
+process.env = localChildEnv();
+const shutdown = new AbortController();
 const runDir = path.join(root, ".local-rehearsal", new Date().toISOString().replace(/[:.]/g, "-"));
 await mkdir(runDir, { recursive: true });
 const evidence = {
@@ -36,6 +43,7 @@ async function port() {
   return result;
 }
 function start(args, env) {
+  shutdown.signal.throwIfAborted();
   const child = spawn(process.execPath, args, {
     cwd: root, env: localChildEnv(env), stdio: ["ignore", "pipe", "pipe"], windowsHide: true,
   });
@@ -67,19 +75,46 @@ async function waitUntil(check, child) {
   throw new Error("local service did not become ready: " + safeMessage(child.tail));
 }
 async function check(name, operation) {
+  shutdown.signal.throwIfAborted();
   await operation();
+  shutdown.signal.throwIfAborted();
   evidence.checks.push({ name, status: "PASS" });
   console.log("PASS " + name);
 }
+
+let finishing;
+function finish() {
+  if (!finishing) finishing = (async () => {
+    const cleanupFailures = await cleanupLocalResources([
+      ...[...children].reverse().map((child) => ({ name: "child", close: () => stop(child) })),
+      ...(repository ? [{ name: "repository", close: () => repository.close() }] : []),
+      ...(database ? [{ name: "database", close: () => database.stop() }] : []),
+    ]);
+    if (cleanupFailures.length) {
+      evidence.status = "FAIL";
+      evidence.cleanupFailures = cleanupFailures.map(({ name, message }) => ({ name, message: safeMessage(message) }));
+      console.error("Local resource cleanup failed; see evidence.");
+    }
+    evidence.finishedAt = new Date().toISOString();
+    // No event-loop yield between the final status snapshot and process exit.
+    writeFileSync(path.join(runDir, "evidence.json"), JSON.stringify(evidence, null, 2) + "\n", { mode: 0o600 });
+    console.log("Evidence: " + path.join(runDir, "evidence.json"));
+  })();
+  return finishing;
+}
+const unregisterTermination = registerLocalTermination({
+  onSignal: (signal) => { evidence.status = "FAIL"; evidence.failure = "Rehearsal interrupted by " + signal; },
+  abort: () => shutdown.abort(new Error("Local rehearsal interrupted")),
+  cleanup: finish,
+});
 
 try {
   const [pgPort, rpcPort, apiPort] = await Promise.all([port(), port(), port()]);
   assert.equal(new Set([pgPort, rpcPort, apiPort]).size, 3);
   const password = randomBytes(24).toString("hex");
-  database = new EmbeddedPostgres({
+  database = new LocalPostgres({
+    binaries, signal: shutdown.signal, env: localChildEnv(),
     databaseDir: path.join(runDir, "postgres"), user: "tes_local", password, port: pgPort,
-    persistent: true, authMethod: "scram-sha-256", createPostgresUser: false,
-    postgresFlags: ["-h", "127.0.0.1"], onLog: () => {}, onError: () => {},
   });
   await check("automatic PostgreSQL provisioning", async () => {
     await database.initialise();
@@ -293,19 +328,7 @@ try {
   console.error(evidence.failure);
   process.exitCode = 1;
 } finally {
-  const cleanupFailures = await cleanupLocalResources([
-    ...[...children].reverse().map((child) => ({ name: "child", close: () => stop(child) })),
-    ...(repository ? [{ name: "repository", close: () => repository.close() }] : []),
-    ...(database ? [{ name: "database", close: () => database.stop() }] : []),
-  ]);
-  if (cleanupFailures.length) {
-    evidence.status = "FAIL";
-    evidence.cleanupFailures = cleanupFailures.map(({ name, message }) => ({ name, message: safeMessage(message) }));
-    console.error("Local resource cleanup failed; see evidence.");
-  }
-  evidence.finishedAt = new Date().toISOString();
-  await writeFile(path.join(runDir, "evidence.json"), JSON.stringify(evidence, null, 2) + "\n", { mode: 0o600 });
-  console.log("Evidence: " + path.join(runDir, "evidence.json"));
+  await finish();
+  unregisterTermination();
 }
-// The embedded server's beforeExit hook otherwise replaces the failure exit code.
 process.exit(evidence.status === "FAIL" ? 1 : 0);

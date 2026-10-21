@@ -42,6 +42,15 @@ suites, all eighteen contract tests and frontend lint. See the resulting PR #76
 head checks for exact committed-candidate CI status. The unconfigured preflight
 still fails as intended; explicit setup-mode configuration passes with warnings.
 
+A subsequent focused agent review reproduced an early-exit hang in the
+embedded-postgres lifecycle wrapper and inherited PG client configuration.
+The support runner now uses pinned binary packages and native initdb/pg_ctl,
+with bounded control commands, private password-file cleanup, isolated parent
+configuration and idempotent interruption cleanup. The replacement passed a real
+eleven-check local rehearsal. Its expanded regression suite passed 24 cases on
+Windows; one actual POSIX signal case is reserved for Linux CI. Final evidence
+is written without yielding to an interleaving signal callback.
+
 ## Initial Review Record
 
 ## Candidate and fixes

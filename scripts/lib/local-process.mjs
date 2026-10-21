@@ -38,3 +38,25 @@ export async function cleanupLocalResources(operations) {
   }
   return failures;
 }
+
+export function registerLocalTermination({ onSignal, cleanup, abort, events = process, exit = (code) => process.exit(code) }) {
+  let stopping = false;
+  const handle = (signal) => {
+    if (stopping) return;
+    stopping = true;
+    onSignal(signal);
+    abort();
+    Promise.resolve().then(cleanup).then(
+      () => exit(signal === "SIGINT" ? 130 : 143),
+      () => exit(1),
+    );
+  };
+  const interrupt = () => handle("SIGINT");
+  const terminate = () => handle("SIGTERM");
+  events.on("SIGINT", interrupt);
+  events.on("SIGTERM", terminate);
+  return () => {
+    events.removeListener("SIGINT", interrupt);
+    events.removeListener("SIGTERM", terminate);
+  };
+}
