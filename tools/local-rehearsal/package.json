@@ -1,0 +1,12 @@
+{
+  "name": "tesla-local-rehearsal-support",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "embedded-postgres": "16.14.0-beta.17"
+  },
+  "allowScripts": {
+    "@embedded-postgres/windows-x64@16.14.0-beta.17": true,
+    "@embedded-postgres/linux-x64@16.14.0-beta.17": true
+  }
+}

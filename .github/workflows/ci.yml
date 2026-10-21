@@ -175,6 +175,35 @@ jobs:
       - name: Build frontend
         run: npm --prefix frontend run build
 
+  local-rehearsal:
+    name: Automated local PostgreSQL and role rehearsal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Use Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install root dependencies
+        run: npm ci
+      - name: Provision and exercise PostgreSQL, creator, operator and backer flows
+        run: npm run test:local
+      - name: Audit isolated support dependencies
+        run: npm --prefix tools/local-rehearsal audit --audit-level=high
+      - name: Verify failure exit status
+        shell: bash
+        run: |
+          set +e
+          node scripts/local-rehearsal.mjs --fail-after-provision
+          RESULT=$?
+          set -e
+          test "$RESULT" -eq 1
+
   required-check:
     name: CI
     if: ${{ always() }}
@@ -184,6 +213,7 @@ jobs:
       - deploy-smoke
       - preflight
       - frontend
+      - local-rehearsal
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -194,9 +224,11 @@ jobs:
           DEPLOY_SMOKE_RESULT: ${{ needs['deploy-smoke'].result }}
           PREFLIGHT_RESULT: ${{ needs.preflight.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
+          LOCAL_REHEARSAL_RESULT: ${{ needs['local-rehearsal'].result }}
         run: |
           test "$BACKEND_RESULT" = success
           test "$CONTRACTS_RESULT" = success
           test "$DEPLOY_SMOKE_RESULT" = success
           test "$PREFLIGHT_RESULT" = success
           test "$FRONTEND_RESULT" = success
+          test "$LOCAL_REHEARSAL_RESULT" = success
