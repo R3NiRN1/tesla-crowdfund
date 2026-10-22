@@ -150,3 +150,23 @@ test("confirmed approval does not substitute for an authoritative allowance read
   fireEvent.click(screen.getByRole("button", { name: "2. Contribute" }));
   expect(fixture.write).toHaveBeenCalledTimes(1);
 });
+
+test.each([
+  ["0.000000000000000001", 1n],
+  ["9007199254740993.123456789012345678", 9007199254740993123456789012345678n],
+])("approval displays the exact token amount %s without rounding", (amount, units) => {
+  fixture.reads[0] = { result: units };
+  fixture.reads[1] = { result: 0n };
+  render(<FundCampaign {...props()} remainingToGoal={units} />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: amount } });
+  fireEvent.click(screen.getByRole("button", { name: `1. Approve ${amount} TES` }));
+  expect(fixture.write.mock.calls[0][0].args[1]).toBe(units);
+});
+
+test.each(["0", "-1", "1e2", "0.0000000000000000001"])("invalid amount %s has an explicit disabled reason", (amount) => {
+  render(<FundCampaign {...props()} />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: amount } });
+  expect(screen.getByText(/Enter a positive token amount/)).toBeTruthy();
+  expect(screen.getByRole("textbox").getAttribute("aria-invalid")).toBe("true");
+  expect((screen.getByRole("button", { name: "2. Contribute" }) as HTMLButtonElement).disabled).toBe(true);
+});

@@ -25,6 +25,10 @@ to deploy. Shared testing remains on hold.
 - Funding requires valid decimals, balance and allowance from the configured
   chain. There is no optimistic approval fallback. Amounts with excess precision,
   scientific notation or values outside uint256 are rejected, not rounded.
+- Approval previews, accepted capacity, balance and allowance retain exact token
+  precision. They do not pass through floating-point formatting that can display
+  a nonzero authorization as zero or change large digits. Invalid amounts expose
+  an accessible reason instead of only disabling the transaction buttons.
 - Participant reads are scoped to wallet, campaign and milestone. Late results
   cannot enable actions for a different wallet. Refresh/error states block writes.
 - Creator publication retries verification of the existing transaction. Only a
@@ -62,6 +66,11 @@ wallet/RPC/backend boundaries. It is required by the frontend CI job and
 `npm run verify:mvp`. The suite needs Node 22.22.2 or Node 24.15+; CI uses Node 24.
 These are not actual-wallet browser acceptance tests or an external penetration
 test. The original three contribution regressions failed before repair.
+
+The focused polish adds six red-before/green-after contribution cases for exact
+small/large approval previews and explicit invalid-amount feedback. The combined
+React/engine suite passes 119 cases. These tests verify the displayed amount
+against the actual approval argument; they do not replace wallet acceptance.
 
 Keep the existing backend authorization/publication, contract, persistence,
 dependency audit, lint and production-build checks. Passing them does not prove

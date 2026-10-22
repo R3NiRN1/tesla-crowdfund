@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { formatUnits, parseUnits, type ContractFunctionParameters } from "viem";
 import { useAccount, useReadContracts } from "wagmi";
 
@@ -16,9 +16,7 @@ function short(addr?: string) {
 }
 
 function formatToken(value: bigint, decimals: number, symbol: string) {
-  const text = formatUnits(value, decimals);
-  const numeric = Number(text);
-  return Number.isFinite(numeric) ? `${numeric.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${symbol}` : `${text} ${symbol}`;
+  return `${formatUnits(value, decimals)} ${symbol}`;
 }
 
 type FundingProps = {
@@ -47,6 +45,7 @@ function FundingControls({
   const { address, isConnected } = useAccount();
   const network = useNetworkGuard();
   const [amountText, setAmountText] = useState("10");
+  const amountErrorId = useId();
 
   const readConfig = useMemo(() => {
     const contracts: ContractFunctionParameters[] = [];
@@ -106,6 +105,9 @@ function FundingControls({
       return 0n;
     }
   }, [amountText, decimals]);
+  const amountError = displayDecimals !== null && requestedAmount <= 0n
+    ? `Enter a positive token amount within the supported range, using up to ${displayDecimals} decimal places.`
+    : null;
 
   const expectedAccepted = requestedAmount > remainingToGoal ? remainingToGoal : requestedAmount;
   const needsApproval = expectedAccepted <= 0n
@@ -151,7 +153,7 @@ function FundingControls({
   }
 
   return (
-    <div className="draft-item" style={{ marginTop: 12 }}>
+    <div className="draft-item" style={{ marginTop: 12, overflowWrap: "anywhere" }}>
       <div className="split-row">
         <div>
           <strong>Fund this campaign</strong>
@@ -173,9 +175,12 @@ function FundingControls({
       <div className="button-row" style={{ marginTop: 10 }}>
         <label className="form-field" style={{ minWidth: 180 }}>
           Amount ({symbol})
-          <input value={amountText} onChange={(event) => setAmountText(event.target.value)} inputMode="decimal" disabled={transaction.blocked} />
+          <input value={amountText} onChange={(event) => setAmountText(event.target.value)} inputMode="decimal"
+            maxLength={340} disabled={transaction.blocked} aria-invalid={amountError ? true : undefined}
+            aria-describedby={amountError ? amountErrorId : undefined} />
         </label>
-        <button type="button" className={actionDisabled ? "button-disabled" : "button-primary"} disabled={actionDisabled} onClick={approve}>
+        <button type="button" className={actionDisabled ? "button-disabled" : "button-primary"} disabled={actionDisabled} onClick={approve}
+          style={{ maxWidth: "100%", minWidth: 0, whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.3 }}>
           {`1. Approve ${expectedAccepted > 0n ? formatAmount(expectedAccepted) : "amount"}`}
         </button>
         <button
@@ -188,6 +193,7 @@ function FundingControls({
         </button>
       </div>
 
+      {amountError && <div id={amountErrorId} className="panel-warning">{amountError}</div>}
       <div className="small muted" style={{ marginTop: 8 }}>
         Balance: {typeof balance === "bigint" ? formatAmount(balance) : readsLoading ? "loading" : "unavailable"}. Allowance: {typeof allowance === "bigint" ? formatAmount(allowance) : "unavailable"}.
       </div>
