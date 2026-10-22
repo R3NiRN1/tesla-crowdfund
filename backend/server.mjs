@@ -13,6 +13,7 @@ import { getBackendConfig } from "./config.mjs";
 import {
   auditOperatorAction,
   authenticateOperatorCredential,
+  getOperatorSession,
   requireOperatorRole,
   revokeOperatorSession,
 } from "./operator-auth.mjs";
@@ -92,7 +93,7 @@ function submissionCounts(submissions) {
   );
 }
 
-async function diagnosticsSnapshot() {
+async function diagnosticsSnapshot({ includeAudit = false } = {}) {
   const store = await readStore();
   const publicationVerification = publicationVerificationStatus();
   const activeOperators = store.operators.filter((operator) => operator.active !== false).length;
@@ -117,7 +118,8 @@ async function diagnosticsSnapshot() {
       walletSessions: await activeWalletSessionCount(),
       activeOperators,
     },
-    recentAudit: store.auditLog.slice(0, 25),
+    auditAccess: includeAudit,
+    recentAudit: includeAudit ? store.auditLog.slice(0, 25) : [],
   };
 }
 
@@ -312,7 +314,7 @@ async function handler(req, res) {
   if (req.method === "GET" && url.pathname === "/admin/diagnostics") {
     const operator = await requireOperator(req, "diagnostics.read");
     await auditOperatorAction(operator, "operator.diagnostics_read", { requestId: res.requestId });
-    send(res, 200, { ok: true, diagnostics: await diagnosticsSnapshot(), operator });
+    send(res, 200, { ok: true, diagnostics: await diagnosticsSnapshot({ includeAudit: operator.roles.includes("audit.read") }), operator });
     return;
   }
 
@@ -338,7 +340,7 @@ async function handler(req, res) {
 
   if (req.method === "POST" && url.pathname === "/operator/logout") {
     const token = bearerToken(req);
-    const operator = await requireOperatorRole(token, "submission.read");
+    const operator = await getOperatorSession(token);
     await revokeOperatorSession(token);
     send(res, 200, { ok: true, operatorId: operator.id });
     return;
