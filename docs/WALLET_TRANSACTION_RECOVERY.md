@@ -45,10 +45,15 @@ to deploy. Shared testing remains on hold.
 
 ## Recovery boundary
 
-Session storage contains public transaction identifiers and unverified safety
-markers only. It does not contain keys, signatures, sessions, balances, approval
-status or publication truth. An edited hint cannot create a backend publication
-record. RPC and backend checks remain authoritative.
+Only the `tes-wallet-recovery:v1:*` session-storage entries contain public
+transaction identifiers and unverified safety markers. Those entries do not
+contain keys, signatures, bearer sessions, balances, approval status or publication
+truth. An edited hint cannot create a backend publication record. RPC and backend
+checks remain authoritative.
+
+Browser session storage as a whole is not public-only: creator authentication
+separately stores a bearer session there, which the backend validates for each
+private request. Do not share or export browser storage for support diagnostics.
 
 Storage is best-effort. If unavailable, recovery works only while this tab stays
 alive. Retain the transaction hash and check wallet/explorer history before any
