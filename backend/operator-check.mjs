@@ -11,6 +11,7 @@ const { createRepository, setRepositoryForTests } = await import("./repository.m
 const {
   authenticateOperatorCredential,
   getOperatorSession,
+  OPERATOR_ROLES,
   provisionOperator,
   requireOperatorRole,
   revokeOperatorCredential,
@@ -126,10 +127,63 @@ export async function runOperatorChecks(repository, observer = repository) {
   });
 
   setRepositoryForTests(repository);
-  const logoutIdentity = await provisionOperator({ subject: `logout-${randomUUID()}` });
-  const logout = await authenticateOperatorCredential(logoutIdentity.credential);
-  assert.equal(await revokeOperatorSession(logout.sessionToken), true);
-  await assert.rejects(getOperatorSession(logout.sessionToken), (error) => error.code === "operator-session-invalid");
+  for (const role of OPERATOR_ROLES) {
+    await check(`${role} self-session revocation preserves another session and its credential`, async () => {
+      setRepositoryForTests(repository);
+      const identity = await provisionOperator({ subject: `logout-${role}-${randomUUID()}`, roles: [role] });
+      const first = await authenticateOperatorCredential(identity.credential);
+      const second = await authenticateOperatorCredential(identity.credential);
+      const tokenHash = createHash("sha256").update(first.sessionToken).digest("hex");
+      const before = await observer.read();
+      try {
+        assert.equal(await revokeOperatorSession(first.sessionToken), true);
+        const after = await observer.read();
+        const revoked = after.operatorSessions.find((session) => session.tokenHash === tokenHash);
+        assert.ok(Number.isFinite(Date.parse(revoked.revokedAt)));
+        assert.deepEqual(after.operatorSessions, before.operatorSessions.map((session) => (
+          session.tokenHash === tokenHash ? { ...session, revokedAt: revoked.revokedAt } : session
+        )), "only the selected session may change");
+        assert.deepEqual(after.operatorCredentials, before.operatorCredentials);
+        const events = after.auditLog.filter((event) => !before.auditLog.some((old) => old.id === event.id));
+        assert.equal(events.length, 1);
+        assert.equal(events[0].action, "operator.session_revoked");
+        assert.deepEqual(events[0].actor, { kind: "operator", id: identity.operator.id });
+        assert.deepEqual(events[0].detail, { operatorId: identity.operator.id });
+        assert.ok(Number.isFinite(Date.parse(events[0].timestamp)));
+        assert.ok(Date.parse(events[0].timestamp) >= Date.parse(revoked.revokedAt));
+
+        setRepositoryForTests(observer);
+        await assert.rejects(getOperatorSession(first.sessionToken), (error) => error.statusCode === 401 && error.code === "operator-session-invalid");
+        assert.equal((await requireOperatorRole(second.sessionToken, role)).id, identity.operator.id);
+        setRepositoryForTests(repository);
+        assert.equal(await revokeOperatorSession(first.sessionToken), false);
+        assert.deepEqual(await observer.read(), after, "repeated revocation must not add another audit event");
+        const raw = JSON.stringify(after);
+        for (const secret of [identity.credential, first.sessionToken, second.sessionToken]) {
+          assert.equal(raw.includes(secret), false, "credentials and session tokens must not persist in plaintext");
+        }
+      } finally {
+        setRepositoryForTests(repository);
+      }
+    });
+  }
+  await check("missing, malformed, unknown and wallet tokens cannot revoke an operator session", async () => {
+    setRepositoryForTests(repository);
+    const walletToken = randomBytes(32).toString("hex");
+    await repository.transaction((store) => store.walletSessions.push({
+      tokenHash: createHash("sha256").update(walletToken).digest("hex"),
+      address: "0x1111111111111111111111111111111111111111",
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      revokedAt: null,
+    }));
+    const snapshot = await observer.read();
+    for (const token of [undefined, "", "malformed", randomBytes(32).toString("hex"), walletToken]) {
+      assert.equal(await revokeOperatorSession(token), false);
+      assert.deepEqual(await observer.read(), snapshot, "unmatched tokens must not change sessions or audit events");
+    }
+  });
+  setRepositoryForTests(repository);
   await revokeOperatorCredential(credentialId);
   await assert.rejects(getOperatorSession(authenticated.sessionToken), (error) => error.code === "operator-session-invalid");
   await assert.rejects(authenticateOperatorCredential(created.credential), (error) => error.code === "operator-credential-invalid");
