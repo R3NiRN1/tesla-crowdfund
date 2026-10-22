@@ -11,7 +11,10 @@ Use this guide when the app or backend fails during launch rehearsal.
 ## Admin Diagnostics
 
 - `GET /admin/diagnostics` requires a short-lived bearer session for a named operator with `diagnostics.read`.
-- It returns submission counts, audit event count, auth nonce count, environment warnings, and the most recent audit events.
+- It returns aggregate submission/audit/session counts and safe environment warnings.
+- Recent audit event contents additionally require `audit.read`. The response
+  sets `auditAccess: false` and `recentAudit: []` when that permission is absent;
+  summary access must not expose unpublished titles, wallet identities or events.
 - It never returns private keys, wallet secrets, or custody data.
 
 ## Common Checks

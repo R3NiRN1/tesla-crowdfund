@@ -9,6 +9,17 @@ Operators are named server-side identities with explicit technical roles:
 - `audit.read`
 - `diagnostics.read`
 
+Roles are independent. Diagnostics summary counts and safe configuration need
+`diagnostics.read`; recent audit event contents additionally need `audit.read`.
+Without that second permission the response has `auditAccess: false` and an empty
+`recentAudit` array. An audit-only operator cannot read diagnostics.
+
+`POST /operator/logout` requires an active operator session, not a submission or
+diagnostics role. It revokes only the bearer session and records the operator's
+identity in the revocation audit event. Other sessions and credentials remain
+active. A creator-wallet session cannot authorize operator logout. Expired,
+revoked, inactive or invalid operator sessions fail closed.
+
 Provision a development/test operator from a trusted shell connected to the configured repository:
 
 ```text

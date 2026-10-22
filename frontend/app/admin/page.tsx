@@ -329,7 +329,8 @@ export default function AdminPage() {
               </div>
               <div className="timeline" style={{ marginTop: 12 }}>
                 <h3>Recent diagnostic audit events</h3>
-                {diagnostics.recentAudit.slice(0, 5).map((entry) => (
+                {!diagnostics.auditAccess && <div className="small muted">Audit details are restricted for this operator.</div>}
+                {diagnostics.auditAccess && diagnostics.recentAudit.slice(0, 5).map((entry) => (
                   <div className="timeline-item" key={entry.id}>
                     <div>
                       <strong>{entry.action}</strong>

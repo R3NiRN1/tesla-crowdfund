@@ -118,6 +118,7 @@ export type BackendDiagnostics = {
     walletSessions?: number;
     activeOperators?: number;
   };
+  auditAccess: boolean;
   recentAudit: BackendAuditEntry[];
 };
 
