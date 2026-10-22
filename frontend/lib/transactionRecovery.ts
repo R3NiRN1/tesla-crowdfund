@@ -9,6 +9,7 @@ export type TransactionRecoveryHint = {
 
 const PREFIX = "tes-wallet-recovery:v1:";
 const volatileHints = new Map<string, TransactionRecoveryHint>();
+const dirtyHints = new Set<string>();
 const reservedRequests = new Set<string>();
 const hashPattern = /^0x[a-fA-F0-9]{64}$/;
 const addressPattern = /^0x[a-fA-F0-9]{40}$/;
@@ -47,6 +48,8 @@ function parseHint(value: unknown): TransactionRecoveryHint | null {
 // Public transaction hints only. RPC receipts and backend proof remain authoritative.
 export function readTransactionRecovery(key: string): TransactionRecoveryHint | null {
   if (typeof window === "undefined") return null;
+  const unsaved = dirtyHints.has(key) && volatileHints.get(key);
+  if (unsaved) return { ...unsaved };
   try {
     const raw = window.sessionStorage.getItem(PREFIX + key);
     if (raw) {
@@ -72,13 +75,15 @@ export function saveTransactionRecovery(key: string, value: TransactionRecoveryH
   volatileHints.set(key, hint);
   try {
     window.sessionStorage.setItem(PREFIX + key, JSON.stringify({ version: 1, ...hint }));
+    dirtyHints.delete(key);
     return true;
-  } catch { return false; }
+  } catch { dirtyHints.add(key); return false; }
 }
 
 export function clearTransactionRecovery(key: string, expectedHash?: Hash): void {
   if (typeof window === "undefined") return;
   if (expectedHash && readTransactionRecovery(key)?.hash.toLowerCase() !== expectedHash.toLowerCase()) return;
   volatileHints.delete(key);
+  dirtyHints.delete(key);
   try { window.sessionStorage.removeItem(PREFIX + key); } catch { /* No authority is stored here. */ }
 }

@@ -1,6 +1,7 @@
 # Wallet transaction recovery
 
 Scope: issue #77, stacked on the unmerged V2 candidate from PRs #74-#76 and #80.
+Operator role follow-up #81 / PR #82 is a separate pending security dependency.
 This is a wallet lifecycle repair, not a contract security approval or permission
 to deploy. Shared testing remains on hold.
 
@@ -22,6 +23,14 @@ to deploy. Shared testing remains on hold.
   and early backend verification failures do not enable a replacement deployment.
 - Successful receipts are consumed once. Callback identity changes and fresh
   campaign objects cannot repeat the success refresh.
+- Canonical receipt proof and replacement links are bound to recovery scope,
+  original hash, chain, account and target. A cancelled request cannot clear a
+  different pending action, including when a failed storage write retains a lock.
+- Replacement tracking follows the linked replacement hash even when the receipt
+  waiter reports an error without receipt data. Canonical three-block proof is
+  still required; cancelled or unrelated replacements never emit intended success.
+- A newer unsaved live-tab hint takes precedence over stale session storage until
+  persistence succeeds. This is recovery continuity, not on-chain or publish truth.
 - Funding requires valid decimals, balance and allowance from the configured
   chain. There is no optimistic approval fallback. Amounts with excess precision,
   scientific notation or values outside uint256 are rejected, not rounded.
@@ -68,8 +77,9 @@ These are not actual-wallet browser acceptance tests or an external penetration
 test. The original three contribution regressions failed before repair.
 
 The focused polish adds six red-before/green-after contribution cases for exact
-small/large approval previews and explicit invalid-amount feedback. The combined
-React/engine suite passes 119 cases. These tests verify the displayed amount
+small/large approval previews and explicit invalid-amount feedback. That checkpoint
+passed 119 cases. Subsequent isolation, reverted-replacement and dirty-storage
+regressions also failed before repair. These tests verify the displayed amount
 against the actual approval argument; they do not replace wallet acceptance.
 
 Keep the existing backend authorization/publication, contract, persistence,

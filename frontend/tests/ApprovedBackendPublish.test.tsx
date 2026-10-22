@@ -272,6 +272,32 @@ test("ambiguous wallet failure stays locked across remount and manually recovers
   expect(fixture.write).toHaveBeenCalledTimes(1);
 });
 
+test("failed repricing persistence retains the new creator hash, warning and safety markers across remount", () => {
+  const view = render(<ApprovedBackendPublish submission={submission} onPublished={vi.fn()} />);
+  fireEvent.click(deploy());
+  const original = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, storageKey, value) {
+    if (storageKey === `tes-wallet-recovery:v1:${key()}`) throw new Error("replacement hint unavailable");
+    return original.call(this, storageKey, value);
+  });
+  const input = encodeFunctionData({ abi: campaignFactoryMetadataWriteAbi, functionName: "createCampaignWithMetadata",
+    args: ["test", "ipfs://approved", 100n, 3600n, ["one"], [100n]] });
+  act(() => fixture.wait.onReplaced?.({ reason: "repriced", replacedTransaction: { hash: H },
+    transaction: { hash: H2, from: A, to: F, input }, transactionReceipt: evidence(H2) }));
+  expect(readTransactionRecovery(key())?.hash).toBe(H2);
+  expect.soft(hasTransactionRequest(key())).toBe(true);
+  expect.soft(hasTransactionRequest(`${key()}:scope:97:${F}`)).toBe(true);
+  expect.soft(screen.queryByText(/Session recovery is unavailable/)).not.toBeNull();
+  view.unmount();
+  render(<ApprovedBackendPublish submission={submission} onPublished={vi.fn()} />);
+  expect(fixture.wait.hash).toBe(H2);
+  expect(deploy().disabled).toBe(true);
+  expect.soft(screen.queryByText(/Session recovery is unavailable/)).not.toBeNull();
+  fireEvent.click(deploy());
+  expect(fixture.write).toHaveBeenCalledTimes(1);
+  expect(fixture.record).not.toHaveBeenCalled();
+});
+
 test.each([4001, "nested", "typed"])("positively identified user rejection %s releases only the unsent intent", async (kind) => {
   const { UserRejectedRequestError } = await import("viem");
   const rejected = kind === "typed" ? new UserRejectedRequestError(new Error("Rejected"))

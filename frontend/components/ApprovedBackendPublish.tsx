@@ -205,7 +205,10 @@ function PublishScope({ submission, onPublished, publicConfig, networkGuard, add
       }
       const next = { ...previous, hash: replacement.hash };
       currentTransaction.current = next;
-      saveTransactionRecovery(recoveryKey, next);
+      if (!saveTransactionRecovery(recoveryKey, next)) {
+        saveWalletIntent(recoveryKey, next);
+        unavailableStorageKeys.add(recoveryKey);
+      }
       setRpcReceipt(undefined);
       notifyRecovery();
     },

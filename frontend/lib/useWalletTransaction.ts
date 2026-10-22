@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { Address, Hash, TransactionReceipt } from "viem";
+import type { Address, Hash, PublicClient, TransactionReceipt } from "viem";
 import { useBlockNumber, usePublicClient, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { clearTransactionRecovery, clearTransactionRequest, hasTransactionRequest, markTransactionRequest, readTransactionRecovery, saveTransactionRecovery, type TransactionRecoveryHint } from "./transactionRecovery";
 
@@ -11,6 +11,32 @@ const unknownSubmissions = new Set<string>();
 const listeners = new Set<() => void>();
 const requestOrigins = new WeakMap<object, { key: string; hint: Omit<TransactionRecoveryHint, "hash"> }>();
 function notify() { for (const listener of listeners) listener(); }
+
+type TransactionScope = { scope: string; hint: TransactionRecoveryHint };
+type ReceiptProof = { context: TransactionScope; receipt: TransactionReceipt };
+type Replacement = { context: TransactionScope; reason: string; hash: Hash };
+
+function sameScope(left: TransactionScope | null | undefined, right: TransactionScope | null | undefined) {
+  return Boolean(left && right && left.scope === right.scope && left.hint.chainId === right.hint.chainId
+    && left.hint.hash.toLowerCase() === right.hint.hash.toLowerCase()
+    && left.hint.account.toLowerCase() === right.hint.account.toLowerCase()
+    && left.hint.target.toLowerCase() === right.hint.target.toLowerCase());
+}
+
+async function readCanonicalReceipt(client: Pick<PublicClient, "getTransactionReceipt" | "getBlockNumber">, hash: Hash) {
+  const value = await client.getTransactionReceipt({ hash });
+  if (value.transactionHash !== hash || await client.getBlockNumber({ cacheTime: 0 }) < value.blockNumber + 2n) return null;
+  const canonical = await client.getTransactionReceipt({ hash });
+  return canonical.transactionHash === hash && canonical.blockNumber === value.blockNumber
+    && canonical.blockHash === value.blockHash && canonical.status === value.status ? canonical : null;
+}
+
+function receiptProof(previous: ReceiptProof | null, context: TransactionScope, receipt: TransactionReceipt): ReceiptProof {
+  return previous && sameScope(previous.context, context) && previous.receipt.transactionHash === receipt.transactionHash
+    && previous.receipt.blockHash === receipt.blockHash && previous.receipt.blockNumber === receipt.blockNumber
+    && previous.receipt.status === receipt.status && previous.receipt.from === receipt.from && previous.receipt.to === receipt.to
+    ? previous : { context, receipt };
+}
 
 function isUserRejection(value: unknown): boolean {
   const seen = new Set<unknown>();
@@ -31,18 +57,22 @@ export function useWalletTransaction({ recoveryKey, account, chainId, targets, o
   targets: readonly Address[];
   onSuccess: (receipt: TransactionReceipt) => void;
 }) {
-  const [tracking, setTracking] = useState<{ scope: string; hint: TransactionRecoveryHint } | null>(null);
-  const pending = tracking?.scope === recoveryKey ? tracking.hint : null;
+  const [tracking, setTracking] = useState<TransactionScope | null>(null);
+  const context = tracking?.scope === recoveryKey && tracking.hint.chainId === chainId
+    && tracking.hint.account.toLowerCase() === account?.toLowerCase()
+    && targets.some((target) => target.toLowerCase() === tracking.hint.target.toLowerCase()) ? tracking : null;
+  const pending = context?.hint ?? null;
   const [ready, setReady] = useState(false);
   const [promptPending, setPromptPending] = useState(false);
   const [needsHash, setNeedsHash] = useState(false);
   const [unresolvedRequest, setUnresolvedRequest] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [provenReceipt, setProvenReceipt] = useState<TransactionReceipt | null>(null);
-  const completed = useRef(new Set<Hash>());
-  const replacement = useRef<{ reason: string; hash: Hash } | null>(null);
-  const currentPending = useRef(pending);
-  useLayoutEffect(() => { currentPending.current = pending; }, [pending]);
+  const [provenReceipt, setProvenReceipt] = useState<ReceiptProof | null>(null);
+  const completed = useRef(new Set<string>());
+  const [replacement, setReplacement] = useState<Replacement | null>(null);
+  const activeReplacement = sameScope(replacement?.context, context) ? replacement : null;
+  const currentContext = useRef(context);
+  useLayoutEffect(() => { currentContext.current = context; }, [context]);
   const allowedTargets = targets.map((target) => target.toLowerCase()).join(",");
 
   useEffect(() => {
@@ -93,11 +123,16 @@ export function useWalletTransaction({ recoveryKey, account, chainId, targets, o
     confirmations: 1,
     query: { enabled: Boolean(pending), retry: 1 },
     onReplaced(value) {
-      const current = currentPending.current;
-      if (!current || value.replacedTransaction.hash !== current.hash || value.transaction.from.toLowerCase() !== current.account.toLowerCase()) return;
-      replacement.current = { reason: value.reason, hash: value.transactionReceipt.transactionHash };
+      if (!context || !sameScope(context, currentContext.current)) return;
+      const current = context.hint;
+      if (value.replacedTransaction.hash !== current.hash || value.transaction.from.toLowerCase() !== current.account.toLowerCase()
+        || value.transactionReceipt.transactionHash !== value.transaction.hash) return;
+      setReplacement({ context, reason: value.reason, hash: value.transactionReceipt.transactionHash });
       if (value.reason === "repriced" && value.transaction.to?.toLowerCase() === current.target.toLowerCase()) {
-        saveTransactionRecovery(recoveryKey, { ...current, hash: value.transaction.hash });
+        if (!saveTransactionRecovery(context.scope, { ...current, hash: value.transaction.hash })) {
+          markTransactionRequest(context.scope);
+          setMessage("Replacement recovery storage is unavailable. Keep this tab open and retain the replacement hash; another send remains blocked.");
+        }
         notify();
       }
     },
@@ -107,30 +142,30 @@ export function useWalletTransaction({ recoveryKey, account, chainId, targets, o
 
   // Read the canonical receipt again after three confirmations, including reverted receipts.
   useEffect(() => {
-    if (!pending || !client || (!receipt.data && !receipt.error)) return;
+    if (!context || !client || (!receipt.data && !receipt.error && !activeReplacement)) return;
     let cancelled = false;
-    const hash = receipt.data?.transactionHash ?? pending.hash;
-    void client.getTransactionReceipt({ hash }).then(async (value) => {
-      const latest = await client.getBlockNumber({ cacheTime: 0 });
-      if (cancelled || value.transactionHash !== hash || latest < value.blockNumber + 2n) return;
-      const canonical = await client.getTransactionReceipt({ hash });
-      if (!cancelled && canonical.transactionHash === hash && canonical.blockNumber === value.blockNumber
-        && canonical.blockHash === value.blockHash && canonical.status === value.status) setProvenReceipt(canonical);
+    const hash = activeReplacement?.hash ?? context.hint.hash;
+    void readCanonicalReceipt(client, hash).then((canonical) => {
+      if (!cancelled && canonical && sameScope(currentContext.current, context)) {
+        setProvenReceipt((previous) => receiptProof(previous, context, canonical));
+      }
     }).catch(() => { /* Unknown status must continue to block writes. */ });
     return () => { cancelled = true; };
-  }, [client, head, pending, receipt.data, receipt.error]);
+  }, [activeReplacement, client, context, head, receipt.data, receipt.error]);
 
   useEffect(() => {
-    if (!pending) return;
+    if (!pending || !context || !sameScope(provenReceipt?.context, context)) return;
     if (pending.account.toLowerCase() !== account?.toLowerCase() || pending.chainId !== chainId) return;
-    const result = provenReceipt;
-    if (!result || completed.current.has(pending.hash)) return;
-    const knownHash = result.transactionHash === pending.hash || result.transactionHash === replacement.current?.hash;
+    const result = provenReceipt?.receipt;
+    const completionKey = JSON.stringify([recoveryKey, pending.chainId, pending.hash, pending.account, pending.target]);
+    if (!result || completed.current.has(completionKey)) return;
+    const knownHash = result.transactionHash === pending.hash || result.transactionHash === activeReplacement?.hash;
     if (!knownHash) return;
-    const expected = result.from.toLowerCase() === pending.account.toLowerCase()
+    const sameSender = result.from.toLowerCase() === pending.account.toLowerCase();
+    const expected = sameSender
       && result.to?.toLowerCase() === pending.target.toLowerCase();
-    const replaced = replacement.current && replacement.current.reason !== "repriced";
-    if (!expected && !replaced) {
+    const replaced = activeReplacement && activeReplacement.reason !== "repriced";
+    if (!sameSender || (!expected && !replaced)) {
       setMessage("Receipt does not match this wallet action. Sending remains blocked.");
       return;
     }
@@ -138,7 +173,7 @@ export function useWalletTransaction({ recoveryKey, account, chainId, targets, o
       setMessage("Receipt found, but this hash does not resolve the uncertain wallet request. Sending remains blocked pending independent reconciliation.");
       return;
     }
-    completed.current.add(pending.hash);
+    completed.current.add(completionKey);
     clearTransactionRecovery(recoveryKey, pending.hash);
     setTracking(null);
     setProvenReceipt(null);
@@ -147,7 +182,7 @@ export function useWalletTransaction({ recoveryKey, account, chainId, targets, o
       : "Transaction confirmed on its original network.");
     notify();
     if (expected && !replaced && result.status === "success") onSuccess(result);
-  }, [account, chainId, onSuccess, pending, provenReceipt, recoveryKey]);
+  }, [account, activeReplacement, chainId, context, onSuccess, pending, provenReceipt, recoveryKey]);
 
   const blocked = !ready || unresolvedRequest || promptPending || needsHash || isPending || Boolean(pending);
   const send = (input: Parameters<typeof writeContract>[0]) => {
@@ -158,7 +193,7 @@ export function useWalletTransaction({ recoveryKey, account, chainId, targets, o
     setPromptPending(true);
     setMessage(persisted ? null : "Recovery storage is unavailable. Keep this tab open and retain the wallet transaction hash.");
     setProvenReceipt(null);
-    replacement.current = null;
+    setReplacement(null);
     const request = { ...input, account, chainId } as Parameters<typeof writeContract>[0];
     requestOrigins.set(request, { key: recoveryKey, hint: { account, chainId, target: input.address } });
     try { writeContract(request); }
@@ -168,13 +203,11 @@ export function useWalletTransaction({ recoveryKey, account, chainId, targets, o
     }
   };
   const retry = () => {
-    void receipt.refetch();
-    if (pending && client) void client.getTransactionReceipt({ hash: pending.hash }).then(async (value) => {
-      if (value.status !== "reverted" || await client.getBlockNumber({ cacheTime: 0 }) < value.blockNumber + 2n) return;
-      const canonical = await client.getTransactionReceipt({ hash: pending.hash });
-      if (currentPending.current?.hash === pending.hash && canonical.transactionHash === pending.hash
-        && canonical.blockHash === value.blockHash && canonical.blockNumber === value.blockNumber
-        && canonical.status === "reverted") setProvenReceipt(canonical);
+    void receipt.refetch().catch(() => {});
+    if (context && client) void readCanonicalReceipt(client, activeReplacement?.hash ?? context.hint.hash).then((canonical) => {
+      if (canonical && sameScope(currentContext.current, context)) {
+        setProvenReceipt((previous) => receiptProof(previous, context, canonical));
+      }
     }).catch(() => { /* A lookup failure is not evidence of failure on-chain. */ });
   };
   const recover = (hash: string, target: string) => {
@@ -194,6 +227,6 @@ export function useWalletTransaction({ recoveryKey, account, chainId, targets, o
     needsHash, recover, targets,
     error: error ? "Wallet request failed. Check your wallet before retrying." : null,
     statusUnknown: Boolean(pending && receipt.error),
-    unresolvedReceipt: Boolean(pending && unresolvedRequest && provenReceipt?.transactionHash === pending.hash),
+    unresolvedReceipt: Boolean(context && unresolvedRequest && sameScope(provenReceipt?.context, context)),
   };
 }

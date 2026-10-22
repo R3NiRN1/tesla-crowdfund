@@ -41,3 +41,18 @@ test("unknown versions and malformed public hints are not accepted", () => {
   sessionStorage.setItem(`tes-wallet-recovery:v1:${scope}`, JSON.stringify({ version: 1, ...hint, chainId: "97" }));
   expect(readTransactionRecovery(scope)).toBeNull();
 });
+
+test("a failed replacement write retains the newer memory hint over stale storage", () => {
+  const scope = key();
+  const newer = { ...hint, hash: `0x${"b".repeat(64)}` as const };
+  saveTransactionRecovery(scope, hint);
+  const storage = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota exceeded"); });
+  expect(saveTransactionRecovery(scope, newer)).toBe(false);
+  expect(readTransactionRecovery(scope)).toEqual(newer);
+  storage.mockRestore();
+  expect(readTransactionRecovery(scope)).toEqual(newer);
+  expect(saveTransactionRecovery(scope, newer)).toBe(true);
+  expect(JSON.parse(sessionStorage.getItem(`tes-wallet-recovery:v1:${scope}`)!).hash).toBe(newer.hash);
+  clearTransactionRecovery(scope, newer.hash);
+  expect(readTransactionRecovery(scope)).toBeNull();
+});

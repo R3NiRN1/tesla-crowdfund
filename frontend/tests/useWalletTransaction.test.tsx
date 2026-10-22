@@ -47,6 +47,58 @@ beforeEach(() => {
 const scope = () => `hook:${++sequence}`;
 const proof = (status = "success") => ({ status, transactionHash: hash, from: account, to: target, blockNumber: 100n });
 
+test("a cancellation proof cannot consume a different pending recovery scope", async () => {
+  const first = scope(); const second = scope();
+  const secondHash = `0x${"c".repeat(64)}` as Hash;
+  saveTransactionRecovery(second, { hash: secondHash, account, target, chainId: 97 });
+  const original = Storage.prototype.setItem;
+  const storage = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+    if (key === `tes-wallet-recovery:v1:${first}`) throw new Error("hint write unavailable");
+    return original.call(this, key, value);
+  });
+  const view = render(<Harness scope={first} />);
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  storage.mockRestore();
+  const cancellation = { ...proof(), transactionHash: newHash, to: account };
+  fixture.lookup.mockImplementation(async ({ hash: requested }) => {
+    if (requested === newHash) return cancellation;
+    throw new Error("unmined");
+  });
+  act(() => fixture.receiptParameters.onReplaced({ reason: "cancelled", replacedTransaction: { hash },
+    transaction: { hash: newHash, from: account, to: account }, transactionReceipt: cancellation }));
+  fixture.receipt = cancellation;
+  view.rerender(<Harness scope={first} />);
+  await screen.findByText(/does not resolve the uncertain wallet request/);
+  fixture.receipt = undefined; fixture.receiptError = null;
+  view.rerender(<Harness scope={second} />);
+  await act(async () => { for (let turn = 0; turn < 12; turn++) await Promise.resolve(); });
+  expect(readTransactionRecovery(second)?.hash).toBe(secondHash);
+  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(fixture.write).toHaveBeenCalledTimes(1);
+});
+
+test("a reverted replacement is checked at its own hash even when the receipt waiter errors", async () => {
+  const done = vi.fn();
+  const key = scope();
+  const view = render(<Harness scope={key} done={done} />);
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  const reverted = { ...proof("reverted"), transactionHash: newHash };
+  fixture.lookup.mockImplementation(async ({ hash: requested }) => {
+    if (requested === newHash) return reverted;
+    throw new Error("original was replaced");
+  });
+  act(() => fixture.receiptParameters.onReplaced({ reason: "replaced", replacedTransaction: { hash },
+    transaction: { hash: newHash, from: account, to: target }, transactionReceipt: reverted }));
+  fixture.receipt = undefined; fixture.receiptError = new Error("unknown reason");
+  view.rerender(<Harness scope={key} done={done} />);
+  fireEvent.click(screen.getByRole("button", { name: "Retry transaction status" }));
+  await waitFor(() => expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false));
+  expect(fixture.lookup.mock.calls.some(([input]) => input.hash === newHash)).toBe(true);
+  expect(readTransactionRecovery(key)).toBeNull();
+  expect(done).not.toHaveBeenCalled();
+});
+
 test("a successful matching receipt is delivered only once across rerenders", async () => {
   const key = scope();
   const first = vi.fn();
