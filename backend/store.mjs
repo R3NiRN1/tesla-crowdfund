@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { READINESS, withReadiness } from "./validation.mjs";
 import { getRepository } from "./repository.mjs";
+import { assertSubmissionStorageLimits, boundedAuditDetail, MAX_SUBMISSIONS_PER_CREATOR, normalizeContractInput } from "./submission-limits.mjs";
 const ALLOWED_TRANSITIONS = Object.freeze({
   draft: new Set(["pending_review"]),
   pending_review: new Set(["needs_changes", "approved", "rejected"]),
@@ -30,11 +31,14 @@ export async function writeStore(store) {
 }
 
 export function appendAudit(store, action, detail = {}, actor = { kind: "system", id: null }) {
+  if (!["system", "wallet", "operator"].includes(actor?.kind)) {
+    throw backendError(400, "invalid-audit-actor", "audit actor kind must be system, wallet, or operator");
+  }
   const entry = {
     id: randomUUID(),
-    action,
-    actor,
-    detail,
+    action: String(action).slice(0, 120),
+    actor: { kind: String(actor?.kind ?? "system").slice(0, 32), id: actor?.id == null ? null : String(actor.id).slice(0, 200) },
+    detail: boundedAuditDetail(detail),
     timestamp: new Date().toISOString(),
   };
   store.auditLog.unshift(entry);
@@ -67,7 +71,7 @@ function normalizeSubmission(payload, existing = {}) {
     imageUrl: primaryImage?.uri ?? String(payload.imageUrl ?? existing.imageUrl ?? "").trim(),
     media,
     metadataURI,
-    contractInput: payload.contractInput ?? existing.contractInput ?? null,
+    contractInput: payload.contractInput == null ? existing.contractInput ?? null : normalizeContractInput(payload.contractInput),
   });
 }
 
@@ -100,7 +104,12 @@ export async function buildSubmissionMetadata(id) {
 }
 
 export async function createSubmission(payload = {}, actor) {
+  assertSubmissionStorageLimits(payload);
   return getRepository().transaction((store) => {
+    const creator = String(payload.creatorAddress ?? "").trim().toLowerCase();
+    if (store.submissions.filter((item) => String(item.creatorAddress ?? "").trim().toLowerCase() === creator).length >= MAX_SUBMISSIONS_PER_CREATOR) {
+      throw backendError(429, "submission-creation-quota", "creator submission quota reached");
+    }
     const now = new Date().toISOString();
     const submission = normalizeSubmission(payload, {
       id: randomUUID(),
@@ -111,6 +120,7 @@ export async function createSubmission(payload = {}, actor) {
       createdAt: now,
       updatedAt: now,
     });
+    assertSubmissionStorageLimits(submission);
     store.submissions.unshift(submission);
     appendAudit(store, "submission.created", {
       submissionId: submission.id,
@@ -263,6 +273,7 @@ export async function addCampaignUpdate(id, payload = {}, actor) {
 }
 
 export async function updateSubmission(id, patch = {}, actor) {
+  assertSubmissionStorageLimits(patch);
   return getRepository().transaction((store) => {
   const index = store.submissions.findIndex((submission) => submission.id === id);
   if (index === -1) {
@@ -284,6 +295,7 @@ export async function updateSubmission(id, patch = {}, actor) {
     updatedAt: new Date().toISOString(),
   });
 
+  assertSubmissionStorageLimits(next);
   store.submissions[index] = next;
     appendAudit(store, "submission.updated", {
     submissionId: id,
@@ -317,6 +329,7 @@ export async function updateSubmissionStatus(id, status, patch = {}, actor) {
     throw backendError(422, "manual-verification-required", "manual verification is required before approval");
   }
 
+  assertSubmissionStorageLimits(patch);
   const next = withReadiness({
     ...previous,
     ...patch,
@@ -326,6 +339,7 @@ export async function updateSubmissionStatus(id, status, patch = {}, actor) {
     updatedAt: new Date().toISOString(),
   });
 
+  assertSubmissionStorageLimits(next);
   store.submissions[index] = next;
     appendAudit(store, `submission.${status}`, {
     submissionId: id,

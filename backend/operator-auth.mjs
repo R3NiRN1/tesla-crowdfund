@@ -24,6 +24,16 @@ function equalHex(left, right) {
   return timingSafeEqual(Buffer.from(left, "hex"), Buffer.from(right, "hex"));
 }
 
+function unexpired(value, now) {
+  const expiry = typeof value === "string" ? Date.parse(value) : NaN;
+  return Number.isFinite(expiry) && expiry > now;
+}
+
+function activeCredential(credential, now) {
+  return credential && !credential.revokedAt
+    && (credential.expiresAt == null || unexpired(credential.expiresAt, now));
+}
+
 function validateRoles(roles) {
   const normalized = [...new Set(Array.isArray(roles) ? roles.map(String) : [])];
   if (!normalized.length || normalized.some((role) => !OPERATOR_ROLES.includes(role))) {
@@ -81,8 +91,7 @@ export async function authenticateOperatorCredential(value) {
   return getRepository().transaction((store) => {
     const credential = store.operatorCredentials.find((item) => item.id === credentialId);
     if (
-      !credential || credential.revokedAt ||
-      (credential.expiresAt && Date.parse(credential.expiresAt) <= now.getTime()) ||
+      !activeCredential(credential, now.getTime()) ||
       !equalHex(credential.secretHash, hashSecret(secret.toLowerCase()))
     ) {
       throw operatorError(401, "operator-credential-invalid", "operator credential is invalid, expired, or revoked");
@@ -92,6 +101,7 @@ export async function authenticateOperatorCredential(value) {
     const session = {
       tokenHash,
       operatorId: operator.id,
+      credentialId: credential.id,
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + OPERATOR_SESSION_TTL_MS).toISOString(),
       revokedAt: null,
@@ -112,7 +122,12 @@ export async function getOperatorSession(sessionToken) {
   const store = await getRepository().read();
   const record = store.operatorSessions.find((item) => equalHex(item.tokenHash, hashSecret(token.toLowerCase())));
   if (!record || record.revokedAt) throw operatorError(401, "operator-session-invalid", "operator session is invalid or revoked");
-  if (Date.parse(record.expiresAt) <= Date.now()) throw operatorError(401, "operator-session-expired", "operator session has expired");
+  const now = Date.now();
+  if (!unexpired(record.expiresAt, now)) throw operatorError(401, "operator-session-expired", "operator session has expired");
+  const credential = record.credentialId && store.operatorCredentials.find((item) => item.id === record.credentialId);
+  if (!activeCredential(credential, now) || credential.operatorId !== record.operatorId) {
+    throw operatorError(401, "operator-session-invalid", "operator session credential is invalid, expired, or revoked");
+  }
   const operator = store.operators.find((item) => item.id === record.operatorId);
   if (!operator?.active) throw operatorError(403, "operator-inactive", "operator identity is inactive");
   return { id: operator.id, subject: operator.subject, displayName: operator.displayName, roles: [...operator.roles] };
@@ -146,6 +161,9 @@ export async function revokeOperatorCredential(credentialId, actor = { kind: "sy
     const record = store.operatorCredentials.find((item) => item.id === credentialId);
     if (!record || record.revokedAt) return false;
     record.revokedAt = new Date().toISOString();
+    for (const session of store.operatorSessions) {
+      if (session.credentialId === record.id && !session.revokedAt) session.revokedAt = record.revokedAt;
+    }
     appendAudit(store, "operator.credential_revoked", { credentialId, operatorId: record.operatorId }, actor);
     return true;
   });
