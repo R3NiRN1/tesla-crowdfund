@@ -4,6 +4,25 @@ Decision: **HOLD shared BSC testing and branch consolidation.** Developer-only l
 rehearsal is available. The completed launch issue queue is not a current security
 approval, and `dev` still lacks the V2 security repairs.
 
+## Wallet And Adversarial Follow-Up: 2026-10-22
+
+Issue #77 repairs duplicate wallet submissions, receipt refresh loops and
+publication recovery on the unmerged candidate. Its React DOM tests do not
+constitute real-wallet acceptance or an independent penetration test. Require
+fresh checks on its exact final commit; see [the recovery boundary](WALLET_TRANSACTION_RECOVERY.md).
+
+A bounded local adversarial review also reproduced separate ownership/escrow
+liveness, draft-storage amplification and credential/session revocation defects.
+These are unresolved release blockers, not accepted limitations. Prior green
+tests did not cover them. Shared testing and branch consolidation remain on hold
+until focused fixes and independent review are complete. No real funds are
+permitted, and isolated local developer testing is not a launch approval.
+
+The default Windows production build passed after the current clean frontend
+installation, including static generation of all application routes. This is
+fresh successful evidence, not a claim that a source repair for the earlier
+host-specific Turbopack failure was identified. Final-head CI remains required.
+
 ## Verified local support follow-up
 
 This section supersedes the initial review's local-infrastructure and repository

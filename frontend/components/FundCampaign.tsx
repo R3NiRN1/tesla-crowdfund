@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { formatUnits, parseUnits, type ContractFunctionParameters } from "viem";
-import { useAccount, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { useAccount, useReadContracts } from "wagmi";
 
 import { campaignWriteAbi } from "@/lib/campaignWriteAbi";
 import { erc20Abi } from "@/lib/erc20Abi";
+import { useNetworkGuard } from "@/lib/useNetworkGuard";
+import { useWalletTransaction } from "@/lib/useWalletTransaction";
+import WalletTransactionStatus from "./WalletTransactionStatus";
 
 function short(addr?: string) {
   if (!addr || typeof addr !== "string") return "-";
@@ -18,26 +21,32 @@ function formatToken(value: bigint, decimals: number, symbol: string) {
   return Number.isFinite(numeric) ? `${numeric.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${symbol}` : `${text} ${symbol}`;
 }
 
-export default function FundCampaign({
-  token,
-  campaignAddress,
-  remainingToGoal,
-  onContributed,
-  disabled = false,
-  disabledReason,
-}: {
+type FundingProps = {
   token: `0x${string}`;
   campaignAddress: `0x${string}`;
   remainingToGoal: bigint;
   onContributed?: () => void;
   disabled?: boolean;
   disabledReason?: string;
-}) {
+};
+
+export default function FundCampaign(props: FundingProps) {
+  const { address, chainId } = useAccount();
+  const network = useNetworkGuard();
+  return <FundingControls key={`${address}:${chainId}:${network.expectedChainId}:${props.token}:${props.campaignAddress}`} {...props} />;
+}
+
+function FundingControls({
+  token,
+  campaignAddress,
+  remainingToGoal,
+  onContributed,
+  disabled = false,
+  disabledReason,
+}: FundingProps) {
   const { address, isConnected } = useAccount();
+  const network = useNetworkGuard();
   const [amountText, setAmountText] = useState("10");
-  const [approvedOnce, setApprovedOnce] = useState(false);
-  const [lastApproveHash, setLastApproveHash] = useState<`0x${string}` | null>(null);
-  const [lastContribHash, setLastContribHash] = useState<`0x${string}` | null>(null);
 
   const readConfig = useMemo(() => {
     const contracts: ContractFunctionParameters[] = [];
@@ -61,9 +70,10 @@ export default function FundCampaign({
     return { contracts, indices };
   }, [address, campaignAddress, token]);
 
-  const { data: reads, refetch, isLoading: readsLoading, error: readsError } = useReadContracts({
+  const { data: reads, refetch, isLoading: readsLoading, isFetching, error: readsError } = useReadContracts({
     allowFailure: true,
-    contracts: readConfig.contracts,
+    contracts: readConfig.contracts.map((contract) => ({ ...contract, chainId: network.expectedChainId ?? undefined })),
+    query: { enabled: network.expectedChainId !== null },
   });
 
   const balanceResult = readConfig.indices.balance !== null ? reads?.[readConfig.indices.balance]?.result : undefined;
@@ -77,13 +87,21 @@ export default function FundCampaign({
     ? decimalsResult
     : typeof decimalsResult === "bigint"
       ? Number(decimalsResult)
-      : 18;
+      : NaN;
   const symbol = typeof symbolResult === "string" && symbolResult ? symbolResult : "TES";
+  const readsValid = !readsError && !readsLoading && !isFetching && Number.isInteger(decimals) && decimals >= 0 && decimals <= 255
+    && typeof balance === "bigint" && balance >= 0n && typeof allowance === "bigint" && allowance >= 0n
+    && [readConfig.indices.balance, readConfig.indices.allowance, readConfig.indices.decimals]
+      .every((index) => index !== null && reads?.[index]?.status !== "failure");
+  const displayDecimals = Number.isInteger(decimals) && decimals >= 0 && decimals <= 255 ? decimals : null;
+  const formatAmount = (value: bigint) => displayDecimals === null ? "unavailable (token decimals unknown)" : formatToken(value, displayDecimals, symbol);
 
   const requestedAmount = useMemo(() => {
     try {
-      if (!amountText.trim() || Number(amountText) <= 0) return 0n;
-      return parseUnits(amountText, decimals);
+      if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255 || !/^\d+(\.\d+)?$/.test(amountText)) return 0n;
+      if ((amountText.split(".")[1]?.length ?? 0) > decimals || amountText.length > 340) return 0n;
+      const amount = parseUnits(amountText, decimals);
+      return amount > 0n && amount < 2n ** 256n ? amount : 0n;
     } catch {
       return 0n;
     }
@@ -94,42 +112,30 @@ export default function FundCampaign({
     ? true
     : typeof allowance === "bigint"
       ? allowance < expectedAccepted
-      : !approvedOnce;
+      : true;
 
-  const { writeContract, error: writeError, isPending } = useWriteContract();
-  const approveReceipt = useWaitForTransactionReceipt({ hash: lastApproveHash ?? undefined });
-  const contributionReceipt = useWaitForTransactionReceipt({ hash: lastContribHash ?? undefined });
-
-  useEffect(() => {
-    if (approveReceipt.data?.status === "success") {
-      setApprovedOnce(true);
+  const transaction = useWalletTransaction({
+    recoveryKey: `fund:${network.expectedChainId}:${address?.toLowerCase()}:${token.toLowerCase()}:${campaignAddress.toLowerCase()}`,
+    account: address,
+    chainId: network.expectedChainId,
+    targets: [token, campaignAddress],
+    onSuccess(receipt) {
       void refetch();
-    }
-  }, [approveReceipt.data?.status, refetch]);
+      if (receipt.to?.toLowerCase() === campaignAddress.toLowerCase()) onContributed?.();
+    },
+  });
 
-  useEffect(() => {
-    if (contributionReceipt.data?.status === "success") {
-      void refetch();
-      onContributed?.();
-    }
-  }, [contributionReceipt.data?.status, onContributed, refetch]);
-
-  const actionDisabled = disabled || !isConnected || !address || requestedAmount <= 0n || remainingToGoal <= 0n || isPending;
+  const actionDisabled = disabled || network.blockWrites || !isConnected || !address || !readsValid
+    || requestedAmount <= 0n || remainingToGoal <= 0n || transaction.blocked || balance === undefined || balance < expectedAccepted;
 
   const approve = () => {
     if (actionDisabled || expectedAccepted <= 0n) return;
-    writeContract(
-      { address: token, abi: erc20Abi, functionName: "approve", args: [campaignAddress, expectedAccepted] },
-      { onSuccess: (hash) => setLastApproveHash(hash) },
-    );
+    transaction.send({ address: token, abi: erc20Abi, functionName: "approve", args: [campaignAddress, expectedAccepted] });
   };
 
   const contribute = () => {
     if (actionDisabled || needsApproval) return;
-    writeContract(
-      { address: campaignAddress, abi: campaignWriteAbi, functionName: "contribute", args: [requestedAmount] },
-      { onSuccess: (hash) => setLastContribHash(hash) },
-    );
+    transaction.send({ address: campaignAddress, abi: campaignWriteAbi, functionName: "contribute", args: [requestedAmount] });
   };
 
   if (disabled || remainingToGoal <= 0n) {
@@ -139,6 +145,7 @@ export default function FundCampaign({
         <div className="small" style={{ marginTop: 4 }}>
           {remainingToGoal <= 0n ? "Campaign hard cap has been reached." : disabledReason || "Setup or campaign state does not permit funding."}
         </div>
+        <WalletTransactionStatus transaction={transaction} />
       </div>
     );
   }
@@ -154,22 +161,22 @@ export default function FundCampaign({
       </div>
 
       <div className="small muted" style={{ marginTop: 8 }}>
-        Remaining capacity: {formatToken(remainingToGoal, decimals, symbol)}. The contract can never accept more than this amount.
+        Remaining capacity: {formatAmount(remainingToGoal)}. The contract can never accept more than this amount.
       </div>
 
       {requestedAmount > remainingToGoal && remainingToGoal > 0n && (
         <div className="panel-warning" style={{ marginTop: 10 }}>
-          You requested {formatToken(requestedAmount, decimals, symbol)}, but only {formatToken(remainingToGoal, decimals, symbol)} remains. V2 will transfer only the remaining amount; the excess stays in your wallet. The approval below is capped to that remaining amount.
+          You requested {formatAmount(requestedAmount)}, but only {formatAmount(remainingToGoal)} remains. V2 will transfer only the remaining amount; the excess stays in your wallet. The approval below is capped to that remaining amount.
         </div>
       )}
 
       <div className="button-row" style={{ marginTop: 10 }}>
         <label className="form-field" style={{ minWidth: 180 }}>
           Amount ({symbol})
-          <input value={amountText} onChange={(event) => setAmountText(event.target.value)} inputMode="decimal" />
+          <input value={amountText} onChange={(event) => setAmountText(event.target.value)} inputMode="decimal" disabled={transaction.blocked} />
         </label>
         <button type="button" className={actionDisabled ? "button-disabled" : "button-primary"} disabled={actionDisabled} onClick={approve}>
-          {approveReceipt.isLoading ? "Approving..." : `1. Approve ${expectedAccepted > 0n ? formatToken(expectedAccepted, decimals, symbol) : "amount"}`}
+          {`1. Approve ${expectedAccepted > 0n ? formatAmount(expectedAccepted) : "amount"}`}
         </button>
         <button
           type="button"
@@ -177,20 +184,17 @@ export default function FundCampaign({
           disabled={actionDisabled || needsApproval}
           onClick={contribute}
         >
-          {contributionReceipt.isLoading ? "Contributing..." : "2. Contribute"}
+          {transaction.pending?.target.toLowerCase() === campaignAddress.toLowerCase() ? "Contributing..." : "2. Contribute"}
         </button>
       </div>
 
       <div className="small muted" style={{ marginTop: 8 }}>
-        Balance: {typeof balance === "bigint" ? formatToken(balance, decimals, symbol) : readsLoading ? "loading" : "unavailable"}. Allowance: {typeof allowance === "bigint" ? formatToken(allowance, decimals, symbol) : "unavailable"}.
+        Balance: {typeof balance === "bigint" ? formatAmount(balance) : readsLoading ? "loading" : "unavailable"}. Allowance: {typeof allowance === "bigint" ? formatAmount(allowance) : "unavailable"}.
       </div>
-      {lastApproveHash && <div className="small muted">Approve tx: {short(lastApproveHash)} {approveReceipt.data?.status ?? (approveReceipt.isLoading ? "pending" : "")}</div>}
-      {lastContribHash && <div className="small muted">Contribution tx: {short(lastContribHash)} {contributionReceipt.data?.status ?? (contributionReceipt.isLoading ? "pending" : "")}</div>}
-      {(readsError || writeError) && (
-        <div className="panel-danger" style={{ marginTop: 10 }}>
-          {readsError instanceof Error ? readsError.message : writeError?.message}
-        </div>
-      )}
+      {network.message && <div className="panel-warning">{network.message}</div>}
+      {!readsValid && <div className="panel-warning">Funding disabled until token balance, allowance and decimals are verified. <button type="button" onClick={() => { void refetch(); }}>Retry token reads</button></div>}
+      {readsValid && balance !== undefined && balance < expectedAccepted && <div className="panel-warning">Insufficient token balance for the accepted contribution.</div>}
+      <WalletTransactionStatus transaction={transaction} />
     </div>
   );
 }
