@@ -147,6 +147,23 @@ test.each(["success", "reverted"])("a manually supplied old %s receipt cannot un
   expect(fixture.write).toHaveBeenCalledTimes(1);
 });
 
+test("manual recovery cannot persist a candidate without its uncertain-request safety marker", async () => {
+  const key = scope();
+  const original = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, storageKey, value) {
+    if (storageKey.includes("request:")) throw new Error("request storage unavailable");
+    return original.call(this, storageKey, value);
+  });
+  fixture.write.mockImplementation((input) => fixture.mutation.onError(new Error("transport timeout"), input));
+  render(<Harness scope={key} />);
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Recovery transaction hash" }), { target: { value: hash } });
+  fireEvent.click(screen.getByRole("button", { name: "Check existing transaction" }));
+  expect(readTransactionRecovery(key)).toBeNull();
+  expect(hasTransactionRequest(key)).toBe(true);
+  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
 test("hash-storage failure cannot erase a persisted unresolved-request safety marker", async () => {
   const key = scope();
   const original = Storage.prototype.setItem;

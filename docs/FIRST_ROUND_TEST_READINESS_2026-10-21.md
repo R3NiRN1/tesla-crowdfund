@@ -24,6 +24,21 @@ and all seven functional/five security CI jobs. Those separate passes do not
 replace final combined-candidate checks or independent human security review.
 Shared testing and branch consolidation remain HOLD. No real funds are permitted.
 
+The combined wallet candidate passed 113 React/engine tests, eight backend
+suites, 21 contract tests, lint including 43 toolchain guards, and zero-advisory
+root/full frontend audits. A clean-commit local run at `1a1b67c` passed all 11
+PostgreSQL/creator/operator/backer/restart/restore stages. Its seven functional
+and five security CI jobs passed; require fresh exact-head results after the
+final storage guard. The recovery regressions reproduced historical-hash
+unlocking and partial-storage failures before repair. Manual candidate hashes
+now retain the uncertain-request lock; they cannot authorize another send.
+
+PR #78 is based on PR #80 so its diff remains wallet-only. The thirteen PR #74
+review threads were rechecked and remain unresolved. Actual wallet/browser
+acceptance, public-host validation, fresh chain-97 deployment and the real-time
+soak remain unperformed. No PR has been merged into `dev` and no unmerged branch
+has been deleted. Automated local testing is not an independent penetration test.
+
 The default Windows production build passed after the current clean frontend
 installation, including static generation of all application routes. This is
 fresh successful evidence, not a claim that a source repair for the earlier

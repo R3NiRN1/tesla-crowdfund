@@ -180,6 +180,11 @@ export function useWalletTransaction({ recoveryKey, account, chainId, targets, o
   const recover = (hash: string, target: string) => {
     if (!needsHash || !account || !chainId || !/^0x[a-fA-F0-9]{64}$/.test(hash)
       || !allowedTargets.split(",").includes(target.toLowerCase())) return;
+    if (!markTransactionRequest(recoveryKey)) {
+      setMessage("Recovery hint was not saved because its safety lock could not be retained. Keep this tab open and reconcile the original wallet request independently.");
+      notify();
+      return;
+    }
     saveTransactionRecovery(recoveryKey, { hash: hash as Hash, target: target as Address, account, chainId });
     signing.delete(recoveryKey);
     // A supplied hash cannot prove which transaction the uncertain request produced.
