@@ -155,6 +155,68 @@ try {
   assert.equal(adminAudit.response.status, 200);
   assert.ok(Array.isArray(adminAudit.payload.auditLog));
 
+  const failures = [];
+  async function check(name, work) {
+    try { await work(); console.log(`PASS route security: ${name}`); }
+    catch (error) { failures.push(error); console.error(`FAIL route security: ${name}: ${error.message}`); }
+  }
+  async function createReadyDraft() {
+    const result = await jsonRequest("/submissions", {
+      method: "POST", token: ownerToken,
+      body: {
+        title: "Ready owner draft", shortDescription: "A valid bounded campaign description", metadataURI: "ipfs://ready-owner-draft",
+        contractInput: { description: "A valid bounded contract description", goal: "1", duration: "3600", milestoneDescriptions: ["Deliver"], milestoneAmounts: ["1"] },
+      },
+    });
+    assert.equal(result.response.status, 201);
+    assert.equal(result.payload.submission.readiness.state, "contract-ready");
+    return result.payload.submission.id;
+  }
+  for (const length of [940_000, 2001]) {
+    await check(`${length}-character owner submit note rejected atomically before bounded submission`, async () => {
+      const id = await createReadyDraft();
+      const before = await setupRepository.read();
+      const oversized = await jsonRequest(`/submissions/${id}/submit`, {
+        method: "POST", token: ownerToken, body: { note: "x".repeat(length) },
+      });
+      assert.equal(oversized.response.status, 400);
+      assert.equal(oversized.payload.error.code, "submission-storage-limit");
+      assert.deepEqual(await setupRepository.read(), before, "rejection must preserve the submission and audit log");
+      const bounded = await jsonRequest(`/submissions/${id}/submit`, {
+        method: "POST", token: ownerToken, body: { note: "n".repeat(2000) },
+      });
+      assert.equal(bounded.response.status, 200);
+      assert.equal(bounded.payload.submission.status, "pending_review");
+      assert.equal(bounded.payload.submission.submitNote, "n".repeat(2000));
+    });
+  }
+  for (const field of ["note", "verificationNote"]) {
+    await check(`oversized operator ${field} rejected atomically before bounded review`, async () => {
+      const id = await createReadyDraft();
+      const submitted = await jsonRequest(`/submissions/${id}/submit`, {
+        method: "POST", token: ownerToken, body: { note: "Ready for review" },
+      });
+      assert.equal(submitted.response.status, 200);
+      const before = await setupRepository.read();
+      const oversized = await jsonRequest(`/admin/submissions/${id}/review`, {
+        method: "POST", token: operatorToken,
+        body: { decision: "approved", manuallyVerified: true, [field]: "x".repeat(2001) },
+      });
+      assert.equal(oversized.response.status, 400);
+      assert.equal(oversized.payload.error.code, "submission-storage-limit");
+      assert.deepEqual(await setupRepository.read(), before, "rejection must preserve the submission and audit log");
+      const bounded = await jsonRequest(`/admin/submissions/${id}/review`, {
+        method: "POST", token: operatorToken,
+        body: { decision: "approved", manuallyVerified: true, note: "n".repeat(2000), verificationNote: "v".repeat(2000) },
+      });
+      assert.equal(bounded.response.status, 200);
+      assert.equal(bounded.payload.submission.status, "approved");
+      assert.equal(bounded.payload.submission.review.note, "n".repeat(2000));
+      assert.equal(bounded.payload.submission.verification.note, "v".repeat(2000));
+    });
+  }
+  if (failures.length) throw new AggregateError(failures, `${failures.length} route note-limit regressions failed`);
+
   console.log("backend:route-security-check passed");
 } finally {
   child.kill("SIGTERM");

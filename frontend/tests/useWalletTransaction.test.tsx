@@ -3,7 +3,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 import type { Address, Hash } from "viem";
 import { useWalletTransaction } from "@/lib/useWalletTransaction";
 import WalletTransactionStatus from "@/components/WalletTransactionStatus";
-import { markTransactionRequest, readTransactionRecovery, saveTransactionRecovery } from "@/lib/transactionRecovery";
+import { hasTransactionRequest, markTransactionRequest, readTransactionRecovery, saveTransactionRecovery } from "@/lib/transactionRecovery";
 
 const fixture = vi.hoisted(() => ({
   write: vi.fn(), lookup: vi.fn(), retry: vi.fn(), head: vi.fn(),
@@ -127,6 +127,38 @@ test("explicit nested wallet rejection safely releases the prompt reservation", 
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false));
   expect(screen.queryByText(/wallet outcome is unknown/)).toBeNull();
+});
+
+test.each(["success", "reverted"])("a manually supplied old %s receipt cannot unlock an uncertain request", async (status) => {
+  const key = scope();
+  const done = vi.fn();
+  fixture.write.mockImplementation((input) => fixture.mutation.onError(new Error("transport timeout"), input));
+  fixture.receipt = proof(status);
+  render(<Harness scope={key} done={done} />);
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText(/wallet outcome is unknown/);
+  fireEvent.change(screen.getByRole("textbox", { name: "Recovery transaction hash" }), { target: { value: hash } });
+  fireEvent.click(screen.getByRole("button", { name: "Check existing transaction" }));
+  await screen.findByText(/Receipt found|Transaction reverted|Transaction confirmed/);
+  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(hasTransactionRequest(key)).toBe(true);
+  expect(done).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(fixture.write).toHaveBeenCalledTimes(1);
+});
+
+test("hash-storage failure cannot erase a persisted unresolved-request safety marker", async () => {
+  const key = scope();
+  const original = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, storageKey, value) {
+    if (storageKey.includes("request:")) return original.call(this, storageKey, value);
+    throw new Error("storage quota exceeded");
+  });
+  render(<Harness scope={key} />);
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText(/Unverified transaction/);
+  expect(hasTransactionRequest(key)).toBe(true);
+  expect(sessionStorage.getItem(`tes-wallet-recovery:v1:request:${key}`)).toBe("1");
 });
 
 test("a persisted unknown request cannot enable a fresh send after reload", async () => {

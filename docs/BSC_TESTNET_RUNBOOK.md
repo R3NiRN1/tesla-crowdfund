@@ -30,7 +30,14 @@ npm run deploy:testnet
 npm run smoke:testnet
 ```
 
-Review `deployments/bscTestnet.json`. It must have schema `tes-crowdfund-deployment/v2`, chain ID 97, network `bscTestnet`, token source `MockTES`, factory version `2.0.0-alpha`, the expected arbitrator and the release commit. The smoke script verifies deployed code, identities and ERC-20 behaviour by minting and transferring one token base unit; zero initial MockTES supply is intentional.
+Review `deployments/bscTestnet.json`. It must have schema `tes-crowdfund-deployment/v2`, chain ID 97, network `bscTestnet`, token source `MockTES`, factory version `2.0.1-alpha`, the expected arbitrator and the release commit. The smoke script verifies deployed code, identities and ERC-20 behaviour by minting and transferring one token base unit; zero initial MockTES supply is intentional.
+
+Version `2.0.0-alpha` is not an acceptable substitute: its inherited ownership
+methods can break funded escrow liveness. The repair is not an upgrade to existing
+contracts. Deploy a fresh reviewed factory/campaign set, update all trust anchors
+and record the new addresses and bytecode evidence. Never treat this as recovering
+funds already locked in an older contract. No deployment is authorized by a local
+test pass; all security and test-host gates still apply.
 
 ## Run phases
 

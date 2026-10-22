@@ -433,11 +433,12 @@ test("hydrated shared request markers recover an unknown wallet hash without ope
   expect(window.sessionStorage.getItem(`tes-wallet-recovery:v1:request:${key()}`)).toBe("1");
   fireEvent.change(screen.getByLabelText("Publication transaction hash"), { target: { value: H } });
   fireEvent.click(screen.getByRole("button", { name: "Track existing transaction" }));
-  expect(hasTransactionRequest(key())).toBe(false);
+  expect(hasTransactionRequest(key())).toBe(true);
   expect(fixture.wait).toMatchObject({ hash: H, chainId: 97 });
   fixture.receipt = evidence();
   view.rerender(<ApprovedBackendPublish submission={submission} onPublished={callback} />);
   await waitFor(() => expect(callback).toHaveBeenCalledTimes(1));
+  expect(hasTransactionRequest(key())).toBe(false);
   expect(fixture.write).not.toHaveBeenCalled();
 });
 
@@ -479,5 +480,130 @@ test("wallet mutation success remains bound to immutable origin after account, c
   act(() => originSuccess?.(H));
   expect(readTransactionRecovery(key())).toEqual({ hash: H, account: A, target: F, chainId: 97 });
   expect(deploy().disabled).toBe(true); expect(fixture.record).not.toHaveBeenCalled();
+  expect(fixture.write).toHaveBeenCalledTimes(1);
+});
+
+test("uncertain request stays locked when a manually supplied older matching transaction reverted", async () => {
+  fixture.write.mockImplementation(() => fixture.mutation.onError?.(new Error("Unknown broadcast outcome")));
+  const callback = vi.fn();
+  const view = render(<ApprovedBackendPublish submission={submission} onPublished={callback} />);
+  fireEvent.click(deploy());
+  fireEvent.change(screen.getByLabelText("Publication transaction hash"), { target: { value: H2 } });
+  fireEvent.click(screen.getByRole("button", { name: "Track existing transaction" }));
+  fixture.receiptError = new Error("Older transaction reverted");
+  fixture.lookup.mockResolvedValue({ ...evidence(H2), status: "reverted" });
+  view.rerender(<ApprovedBackendPublish submission={submission} onPublished={callback} />);
+  await waitFor(() => expect(fixture.lookup).toHaveBeenCalled());
+  await act(async () => { for (let turn = 0; turn < 8; turn++) await Promise.resolve(); });
+  expect(hasTransactionRequest(key())).toBe(true);
+  expect(hasTransactionRequest(`${key()}:scope:97:${F}`)).toBe(true);
+  expect(deploy().disabled).toBe(true);
+  expect(readTransactionRecovery(key())?.hash).toBe(H2);
+  expect(callback).not.toHaveBeenCalled(); expect(fixture.record).not.toHaveBeenCalled();
+  fireEvent.click(deploy()); expect(fixture.write).toHaveBeenCalledTimes(1);
+  expect(screen.getByText(/recovery hint, not proof of the original wallet request/)).toBeTruthy();
+  view.unmount();
+  render(<ApprovedBackendPublish submission={submission} onPublished={callback} />);
+  expect(deploy().disabled).toBe(true); expect(hasTransactionRequest(key())).toBe(true);
+});
+
+test("uncertain request resolves only after matching backend publication proof while retaining the public hint", async () => {
+  fixture.write.mockImplementation(() => fixture.mutation.onError?.(new Error("Unknown broadcast outcome")));
+  fixture.receipt = evidence();
+  const proof = deferred<BackendSubmission>(); fixture.record.mockReturnValue(proof.promise);
+  const callback = vi.fn();
+  const view = render(<ApprovedBackendPublish submission={submission} onPublished={callback} />);
+  fireEvent.click(deploy());
+  fireEvent.change(screen.getByLabelText("Publication transaction hash"), { target: { value: H } });
+  fireEvent.click(screen.getByRole("button", { name: "Track existing transaction" }));
+  await waitFor(() => expect(fixture.record).toHaveBeenCalledTimes(1));
+  expect(hasTransactionRequest(key())).toBe(true);
+  expect(callback).not.toHaveBeenCalled(); expect(deploy().disabled).toBe(true);
+  await act(async () => proof.resolve(published()));
+  expect(callback).toHaveBeenCalledTimes(1);
+  expect(hasTransactionRequest(key())).toBe(false);
+  expect(hasTransactionRequest(`${key()}:scope:97:${F}`)).toBe(false);
+  expect(readTransactionRecovery(key())?.hash).toBe(H);
+  expect(deploy().disabled).toBe(true);
+  view.unmount();
+  render(<ApprovedBackendPublish submission={published()} onPublished={callback} />);
+  expect(deploy().disabled).toBe(true);
+  fireEvent.click(deploy()); expect(fixture.write).toHaveBeenCalledTimes(1);
+});
+
+test("uncertain request storage-failure marker cannot be dropped by a later persistable older reverted hint", async () => {
+  const storage = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("Storage unavailable"); });
+  fixture.write.mockImplementation(() => fixture.mutation.onError?.(new Error("Unknown broadcast outcome")));
+  const view = render(<ApprovedBackendPublish submission={submission} onPublished={vi.fn()} />);
+  fireEvent.click(deploy());
+  fireEvent.change(screen.getByLabelText("Publication transaction hash"), { target: { value: H2 } });
+  fireEvent.click(screen.getByRole("button", { name: "Track existing transaction" }));
+  expect(hasTransactionRequest(key())).toBe(true);
+  expect(screen.getByText(/Keep this tab open and retain the transaction hash/)).toBeTruthy();
+  expect(readTransactionRecovery(key())).toBeNull();
+  storage.mockRestore();
+  fireEvent.click(screen.getByRole("button", { name: "Track existing transaction" }));
+  expect(window.sessionStorage.getItem(`tes-wallet-recovery:v1:request:${key()}`)).toBe("1");
+  expect(window.sessionStorage.getItem(`tes-wallet-recovery:v1:request:${key()}:scope:97:${F}`)).toBe("1");
+  fixture.receiptError = new Error("Older transaction reverted");
+  fixture.lookup.mockResolvedValue({ ...evidence(H2), status: "reverted" });
+  view.rerender(<ApprovedBackendPublish submission={submission} onPublished={vi.fn()} />);
+  await waitFor(() => expect(fixture.lookup).toHaveBeenCalled());
+  await act(async () => { for (let turn = 0; turn < 8; turn++) await Promise.resolve(); });
+  expect(hasTransactionRequest(key())).toBe(true);
+  expect(hasTransactionRequest(`${key()}:scope:97:${F}`)).toBe(true);
+  expect(deploy().disabled).toBe(true);
+  expect(readTransactionRecovery(key())?.hash).toBe(H2);
+  expect(fixture.record).not.toHaveBeenCalled();
+  fireEvent.click(deploy()); expect(fixture.write).toHaveBeenCalledTimes(1);
+});
+
+test("uncertain request cannot persist a manual candidate when safety-marker storage alone fails", () => {
+  const setItem = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+    if (key.includes(":request:")) throw new Error("Safety-marker storage unavailable");
+    setItem.call(this, key, value);
+  });
+  fixture.write.mockImplementation(() => fixture.mutation.onError?.(new Error("Unknown broadcast outcome")));
+  render(<ApprovedBackendPublish submission={submission} onPublished={vi.fn()} />);
+  fireEvent.click(deploy());
+  fireEvent.change(screen.getByLabelText("Publication transaction hash"), { target: { value: H2 } });
+  fireEvent.click(screen.getByRole("button", { name: "Track existing transaction" }));
+  expect(hasTransactionRequest(key())).toBe(true); expect(deploy().disabled).toBe(true);
+  expect(readTransactionRecovery(key())).toBeNull();
+  expect(window.sessionStorage.getItem(`tes-wallet-recovery:v1:${key()}`)).toBeNull();
+  expect(screen.getByText(/hint was not saved/)).toBeTruthy();
+  expect(fixture.record).not.toHaveBeenCalled(); expect(fixture.write).toHaveBeenCalledTimes(1);
+});
+
+test("uncertain request marker survives matching backend proof when the public hint cannot be retained", async () => {
+  fixture.write.mockImplementation(() => fixture.mutation.onError?.(new Error("Unknown broadcast outcome")));
+  fixture.receipt = evidence();
+  const proof = deferred<BackendSubmission>(); fixture.record.mockReturnValue(proof.promise);
+  const callback = vi.fn();
+  render(<ApprovedBackendPublish submission={submission} onPublished={callback} />);
+  fireEvent.click(deploy());
+  fireEvent.change(screen.getByLabelText("Publication transaction hash"), { target: { value: H } });
+  fireEvent.click(screen.getByRole("button", { name: "Track existing transaction" }));
+  await waitFor(() => expect(fixture.record).toHaveBeenCalledTimes(1));
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("Storage unavailable"); });
+  await act(async () => proof.resolve(published()));
+  expect(callback).toHaveBeenCalledTimes(1); expect(deploy().disabled).toBe(true);
+  expect(hasTransactionRequest(key())).toBe(true);
+  expect(hasTransactionRequest(`${key()}:scope:97:${F}`)).toBe(true);
+  expect(readTransactionRecovery(key())?.hash).toBe(H);
+  expect(screen.getByText(/Keep this tab open and retain the transaction hash/)).toBeTruthy();
+  fireEvent.click(deploy()); expect(fixture.write).toHaveBeenCalledTimes(1);
+});
+
+test("a wallet-returned original hash still permits redeployment after a canonical three-deep revert", async () => {
+  const view = render(<ApprovedBackendPublish submission={submission} onPublished={vi.fn()} />);
+  fireEvent.click(deploy());
+  expect(hasTransactionRequest(key())).toBe(false); expect(readTransactionRecovery(key())?.hash).toBe(H);
+  fixture.receiptError = new Error("Original creation reverted");
+  fixture.lookup.mockResolvedValue({ ...evidence(), status: "reverted" });
+  view.rerender(<ApprovedBackendPublish submission={submission} onPublished={vi.fn()} />);
+  await waitFor(() => expect(deploy().disabled).toBe(false));
+  expect(readTransactionRecovery(key())).toBeNull(); expect(fixture.record).not.toHaveBeenCalled();
   expect(fixture.write).toHaveBeenCalledTimes(1);
 });

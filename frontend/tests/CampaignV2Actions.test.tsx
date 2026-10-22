@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import CampaignV2Actions from "@/components/CampaignV2Actions";
-import type { CampaignParticipantView, CampaignView } from "@/lib/readCampaign";
+import { EXPECTED_CAMPAIGN_VERSION, type CampaignParticipantView, type CampaignView } from "@/lib/readCampaign";
 
 const fixture = vi.hoisted(() => ({
   address: "0x1111111111111111111111111111111111111111",
@@ -26,7 +26,7 @@ let sequence = 100;
 function campaign(): CampaignView {
   return {
     address: ("0x" + (++sequence).toString(16).padStart(40, "0")) as `0x${string}`,
-    contractVersion: "2.0.0-alpha", description: "Test", goal: 100n, deadline: 1n,
+    contractVersion: EXPECTED_CAMPAIGN_VERSION, description: "Test", goal: 100n, deadline: 1n,
     owner: "0x3333333333333333333333333333333333333333", token: "0x4444444444444444444444444444444444444444",
     arbitrator: "0x5555555555555555555555555555555555555555", state: 2, totalContributed: 100n,
     totalReleased: 0n, totalRefunded: 0n, nextMilestone: 0n, milestoneSubmissionDeadline: 0n,
@@ -87,5 +87,12 @@ test("participant read errors block actions and expose a read-only retry", async
   fixture.read.mockResolvedValue(participant);
   fireEvent.click(screen.getByRole("button", { name: "Retry wallet state" }));
   await waitFor(() => expect((screen.getByRole("button", { name: "Claim pro-rata refund" }) as HTMLButtonElement).disabled).toBe(false));
+  expect(fixture.write).not.toHaveBeenCalled();
+});
+
+test("pre-fix alpha campaign cannot enable wallet actions", async () => {
+  render(<CampaignV2Actions campaign={{ ...campaign(), contractVersion: "2.0.0-alpha" }} onChanged={vi.fn()} />);
+  await screen.findByText(/Writes disabled: campaign version 2.0.0-alpha/);
+  fireEvent.click(screen.getByRole("button", { name: "Claim pro-rata refund" }));
   expect(fixture.write).not.toHaveBeenCalled();
 });

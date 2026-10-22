@@ -10,7 +10,7 @@ import {CampaignV2} from "./CampaignV2.sol";
  *         while the audited escrow code remains reusable with another compatible token.
  */
 contract CampaignFactoryV2 {
-    string public constant CONTRACT_VERSION = "2.0.0-alpha";
+    string public constant CONTRACT_VERSION = "2.0.1-alpha";
 
     address public immutable token;
     address public immutable arbitrator;

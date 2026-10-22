@@ -32,7 +32,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 contract CampaignV2 is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    string public constant CONTRACT_VERSION = "2.0.0-alpha";
+    string public constant CONTRACT_VERSION = "2.0.1-alpha";
     uint256 public constant BPS = 10_000;
     uint256 public constant CHALLENGE_THRESHOLD_BPS = 1_000; // 10% of contributed stake
     uint256 public constant CHALLENGE_PERIOD = 7 days;
@@ -151,6 +151,7 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
     error NothingToRefund();
     error AlreadyRefunded();
     error InsufficientEscrow();
+    error CreatorIdentityImmutable();
 
     modifier onlyArbitrator() {
         if (msg.sender != arbitrator) revert NotArbitrator();
@@ -204,6 +205,13 @@ contract CampaignV2 is Ownable, ReentrancyGuard {
         }
 
         if (milestoneTotal != goal_) revert InvalidMilestones();
+    }
+
+    // Ownable constructor sets the creator once. No later transfer or renunciation
+    // may redirect the approved beneficiary or leave milestone escrow unpayable.
+    function _transferOwnership(address newOwner) internal override {
+        if (owner() != address(0)) revert CreatorIdentityImmutable();
+        super._transferOwnership(newOwner);
     }
 
     function milestoneCount() external view returns (uint256) {

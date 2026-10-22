@@ -168,13 +168,13 @@ try {
   }
   const token = await deploy(tokenArtifact, [roles.deployer.account.address]);
   const factory = await deploy(factoryArtifact, [token, roles.arbitrator.account.address]);
-  evidence.deployment = { token, factory, version: "2.0.0-alpha", chainId: await client.getChainId() };
+  evidence.deployment = { token, factory, version: "2.0.1-alpha", chainId: await client.getChainId() };
   const read = (address, abi, functionName, args = []) => client.readContract({ address, abi, functionName, args });
   const send = async (role, address, abi, functionName, args = []) =>
     receipt(await roles[role].wallet.writeContract({ address, abi, functionName, args }));
   await check("six distinct client-side signers and local V2 deployment", async () => {
     assert.equal(new Set(Object.values(evidence.wallets).map((value) => value.toLowerCase())).size, 6);
-    assert.equal(await read(factory, factoryArtifact.abi, "CONTRACT_VERSION"), "2.0.0-alpha");
+    assert.equal(await read(factory, factoryArtifact.abi, "CONTRACT_VERSION"), "2.0.1-alpha");
     assert.equal((await read(factory, factoryArtifact.abi, "token")).toLowerCase(), token.toLowerCase());
   });
 

@@ -7,8 +7,8 @@ import {
   parseAbi,
 } from "viem";
 
-const EXPECTED_FACTORY_VERSION = "2.0.0-alpha";
-const EXPECTED_CAMPAIGN_VERSION = "2.0.0-alpha";
+const EXPECTED_FACTORY_VERSION = "2.0.1-alpha";
+const EXPECTED_CAMPAIGN_VERSION = "2.0.1-alpha";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 const factoryAbi = parseAbi([

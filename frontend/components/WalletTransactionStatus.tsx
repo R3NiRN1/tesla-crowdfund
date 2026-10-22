@@ -18,7 +18,7 @@ export default function WalletTransactionStatus({ transaction }: { transaction: 
     </div>}
     {transaction.pending && <>
       <div>Unverified transaction: {transaction.pending.hash}</div>
-      <div>Tracking on chain {transaction.pending.chainId}. {transaction.statusUnknown ? "Status unavailable; another send remains blocked." : "Awaiting confirmation; another send is blocked."}</div>
+      <div>Tracking on chain {transaction.pending.chainId}. {transaction.unresolvedReceipt ? "Receipt located; the original wallet request remains unresolved." : transaction.statusUnknown ? "Status unavailable; another send remains blocked." : "Awaiting confirmation; another send is blocked."}</div>
       <button type="button" className="button-secondary" onClick={transaction.retry}>Retry transaction status</button>
     </>}
     {transaction.message && <div>{transaction.message}</div>}

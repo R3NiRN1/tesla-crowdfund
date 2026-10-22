@@ -4,19 +4,25 @@ Decision: **HOLD shared BSC testing and branch consolidation.** Developer-only l
 rehearsal is available. The completed launch issue queue is not a current security
 approval, and `dev` still lacks the V2 security repairs.
 
-## Wallet And Adversarial Follow-Up: 2026-10-22
+## Combined Security And Wallet Candidate: 2026-10-22
 
 Issue #77 repairs duplicate wallet submissions, receipt refresh loops and
 publication recovery on the unmerged candidate. Its React DOM tests do not
 constitute real-wallet acceptance or an independent penetration test. Require
 fresh checks on its exact final commit; see [the recovery boundary](WALLET_TRANSACTION_RECOVERY.md).
 
-A bounded local adversarial review also reproduced separate ownership/escrow
-liveness, draft-storage amplification and credential/session revocation defects.
-These are unresolved release blockers, not accepted limitations. Prior green
-tests did not cover them. Shared testing and branch consolidation remain on hold
-until focused fixes and independent review are complete. No real funds are
-permitted, and isolated local developer testing is not a launch approval.
+A bounded local adversarial review also reproduced ownership/escrow liveness,
+draft-storage amplification and credential/session revocation defects. Issue #79
+contains focused proposed repairs, now incorporated into this wallet candidate.
+The repaired `2.0.1-alpha` identity rejects the older unsafe deployment version.
+See [the security repair record](security/ADVERSARIAL_REPAIR_2026-10-22.md).
+
+Before integration, draft PR #78 at `fa60dee` passed 102 wallet tests and all
+functional/security jobs. Draft PR #80 at `91d5fbc` independently passed 21
+contract tests, eight backend suites, all 11 clean-commit local rehearsal stages
+and all seven functional/five security CI jobs. Those separate passes do not
+replace final combined-candidate checks or independent human security review.
+Shared testing and branch consolidation remain HOLD. No real funds are permitted.
 
 The default Windows production build passed after the current clean frontend
 installation, including static generation of all application routes. This is

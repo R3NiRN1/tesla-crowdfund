@@ -237,6 +237,14 @@ await expectCode(
   "publish-wrong-campaign-version",
 );
 await expectCode(
+  verifyCampaignPublication({ transactionHash: txHash, submission, creatorAddress, config, provider: makeProvider({ factoryVersion: "2.0.0-alpha" }) }),
+  "publish-wrong-factory-version",
+);
+await expectCode(
+  verifyCampaignPublication({ transactionHash: txHash, submission, creatorAddress, config, provider: makeProvider({ campaignVersion: "2.0.0-alpha" }) }),
+  "publish-wrong-campaign-version",
+);
+await expectCode(
   verifyCampaignPublication({ transactionHash: txHash, submission, creatorAddress, config, provider: makeProvider({ campaignGoal: "301" }) }),
   "publish-campaign-state-mismatch",
 );

@@ -50,6 +50,7 @@ function saveWalletIntent(key: string, intent: WalletIntent) {
   const reserved = markTransactionRequest(key);
   const scoped = markTransactionRequest(intentScopeKey(key, intent));
   if (!reserved || !scoped) unavailableStorageKeys.add(key);
+  return reserved && scoped;
 }
 function clearWalletIntent(key: string, intent: WalletIntent | null) {
   walletIntents.delete(key);
@@ -301,6 +302,13 @@ function PublishScope({ submission, onPublished, publicConfig, networkGuard, add
         verified.current = true;
         // Retain the public hint so a remount with stale approved props cannot deploy again.
         setRecordedHash(transaction.hash);
+        if (hasTransactionRequest(recoveryKey)) {
+          if (saveTransactionRecovery(recoveryKey, transaction)) {
+            clearWalletIntent(recoveryKey, transaction);
+            unavailableStorageKeys.delete(recoveryKey);
+          } else unavailableStorageKeys.add(recoveryKey);
+          notifyRecovery();
+        }
         setMessage("Transaction independently verified on-chain and backend publish record saved.");
         try { callback.current(updated); }
         catch { setError("Publication verified, but the campaign view could not refresh."); }
@@ -318,6 +326,8 @@ function PublishScope({ submission, onPublished, publicConfig, networkGuard, add
   useEffect(() => {
     if (!receiptMatches || evidence?.status !== "reverted" || !transaction || replacementBlocked || !publicClient
       || typeof evidence.blockNumber !== "bigint") return;
+    // A candidate hash cannot prove the outcome of a different, uncertain wallet request.
+    if (hasTransactionRequest(recoveryKey)) return;
     let active = true;
     void publicClient.getBlockNumber({ cacheTime: 0 }).then(async (latestBlock) => {
       if (!active || !alive.current || !same(currentTransaction.current?.hash, transaction.hash)) return;
@@ -332,14 +342,7 @@ function PublishScope({ submission, onPublished, publicConfig, networkGuard, add
         setError("Reverted receipt is no longer canonical. Deployment remains locked.");
         return;
       }
-      if (hasTransactionRequest(recoveryKey)) {
-        if (!saveTransactionRecovery(recoveryKey, transaction)) {
-          unavailableStorageKeys.add(recoveryKey);
-          notifyRecovery();
-          return;
-        }
-        clearWalletIntent(recoveryKey, transaction);
-      }
+      if (hasTransactionRequest(recoveryKey)) return;
       clearTransactionRecovery(recoveryKey, transaction.hash);
       setRpcReceipt(undefined);
       setError("Publish transaction reverted. Backend was not updated.");
@@ -384,11 +387,14 @@ function PublishScope({ submission, onPublished, publicConfig, networkGuard, add
     && /^0x[a-fA-F0-9]{64}$/.test(manualHash);
   const recoverHash = () => {
     if (!canRecover || !walletContext) return;
+    if (!saveWalletIntent(recoveryKey, walletContext)) {
+      setError("Transaction hint was not saved because the unresolved wallet request could not be retained.");
+      notifyRecovery();
+      return;
+    }
     const saved = saveTransactionRecovery(recoveryKey, { ...walletContext, hash: manualHash as `0x${string}` });
-    if (saved) {
-      clearWalletIntent(recoveryKey, walletContext);
-      unavailableStorageKeys.delete(recoveryKey);
-    } else unavailableStorageKeys.add(recoveryKey);
+    if (saved) unavailableStorageKeys.delete(recoveryKey);
+    else unavailableStorageKeys.add(recoveryKey);
     setError(null);
     notifyRecovery();
   };
@@ -419,6 +425,12 @@ function PublishScope({ submission, onPublished, publicConfig, networkGuard, add
           <button type="button" className="button-secondary" disabled={!canRecover} onClick={recoverHash}>
             Track existing transaction
           </button>
+        </div>
+      )}
+      {walletBusy && !alreadyPublished && !recordedHash && (
+        <div className="panel-warning" style={{ marginTop: 10 }}>
+          A manually supplied hash is a recovery hint, not proof of the original wallet request&apos;s outcome.
+          Deployment remains locked pending independent reconciliation.
         </div>
       )}
 

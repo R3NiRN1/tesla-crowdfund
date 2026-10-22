@@ -93,7 +93,59 @@ function evidence(label: string) {
   return keccak256(toBytes(label));
 }
 
+async function assertFixedCreator(campaign: any, creator: Wallet, outsider: Wallet) {
+  await assert.rejects(campaign.write.renounceOwnership({ account: creator.account }), /CreatorIdentityImmutable/);
+  await assert.rejects(campaign.write.transferOwnership([outsider.account.address], { account: creator.account }), /CreatorIdentityImmutable/);
+  await assert.rejects(campaign.write.transferOwnership([campaign.address], { account: creator.account }), /CreatorIdentityImmutable/);
+  await assert.rejects(campaign.write.renounceOwnership({ account: outsider.account }), /OwnableUnauthorizedAccount/);
+  await assert.rejects(campaign.write.transferOwnership([outsider.account.address], { account: outsider.account }), /OwnableUnauthorizedAccount/);
+  assert.equal((await campaign.read.owner()).toLowerCase(), creator.account.address.toLowerCase());
+}
+
 describe("CampaignV2 security invariants", function () {
+  it("keeps the approved creator identity fixed before and after funding", async function () {
+    const { deployer, creator, backerA, outsider, token, campaign } = await deployV2();
+    await assertFixedCreator(campaign, creator, outsider);
+    await fund(token, campaign, deployer, backerA, "100");
+    await assertFixedCreator(campaign, creator, outsider);
+    await advance(30 * DAY + 1);
+    await send(campaign.write.cancelForMissingMilestone({ account: outsider.account }));
+    await send(campaign.write.refund({ account: backerA.account }));
+    assert.equal(await token.read.balanceOf([backerA.account.address]), parseEther("100"));
+    await assertStandardTokenAccounting(token, campaign);
+  });
+
+  it("cannot strand or redirect reviewed escrow through inherited ownership methods", async function () {
+    const { deployer, creator, backerA, outsider, token, campaign } = await deployV2();
+    await fund(token, campaign, deployer, backerA, "100");
+    for (const index of [0n, 1n]) {
+      await send(campaign.write.submitMilestoneEvidence([index, "ipfs://fixed-creator", evidence(`fixed-${index}`)], { account: creator.account }));
+      await assertFixedCreator(campaign, creator, outsider);
+      await advance(7 * DAY + 1);
+      await send(campaign.write.finalizeMilestone([index], { account: outsider.account }));
+      await assertStandardTokenAccounting(token, campaign);
+    }
+    assert.equal(await campaign.read.state(), 3);
+    assert.equal(await token.read.balanceOf([creator.account.address]), parseEther("100"));
+    assert.equal(await token.read.balanceOf([outsider.account.address]), 0n);
+    await assertFixedCreator(campaign, creator, outsider);
+  });
+
+  it("preserves disputed milestone refund liveness after attempted ownership changes", async function () {
+    const { deployer, creator, arbitrator, backerA, outsider, token, campaign } = await deployV2();
+    await fund(token, campaign, deployer, backerA, "100");
+    await send(campaign.write.submitMilestoneEvidence([0n, "ipfs://fixed-dispute", evidence("fixed-dispute")], { account: creator.account }));
+    await send(campaign.write.voteMilestone([0n, 2], { account: backerA.account }));
+    await advance(7 * DAY + 1);
+    await send(campaign.write.finalizeMilestone([0n], { account: outsider.account }));
+    await assertFixedCreator(campaign, creator, outsider);
+    await send(campaign.write.resolveDispute([0n, false], { account: arbitrator.account }));
+    await assertFixedCreator(campaign, creator, outsider);
+    await send(campaign.write.refund({ account: backerA.account }));
+    assert.equal(await token.read.balanceOf([backerA.account.address]), parseEther("100"));
+    await assertStandardTokenAccounting(token, campaign);
+  });
+
   it("hard-caps funding and leaves excess in the final backer's wallet", async function () {
     const { deployer, backerA, backerB, token, campaign, goal } = await deployV2();
 
@@ -252,7 +304,7 @@ describe("CampaignV2 security invariants", function () {
     const [deployer, creator, arbitrator] = wallets;
     const token = await viem.deployContract("MockTES", [deployer.account.address]);
     const factory = await viem.deployContract("CampaignFactoryV2", [token.address, arbitrator.account.address]);
-    assert.equal(await factory.read.CONTRACT_VERSION(), "2.0.0-alpha");
+    assert.equal(await factory.read.CONTRACT_VERSION(), "2.0.1-alpha");
     await assert.rejects(factory.write.createCampaign([
       "Invalid total", parseEther("100"), BigInt(DAY), ["Only milestone"], [parseEther("99")],
     ], { account: creator.account }), /InvalidMilestones/);
@@ -265,8 +317,8 @@ describe("CampaignV2 security invariants", function () {
       /TokenHasNoCode/,
     );
     const { campaign, factory, creator } = await deployV2();
-    assert.equal(await factory.read.CONTRACT_VERSION(), "2.0.0-alpha");
-    assert.equal(await campaign.read.CONTRACT_VERSION(), "2.0.0-alpha");
+    assert.equal(await factory.read.CONTRACT_VERSION(), "2.0.1-alpha");
+    assert.equal(await campaign.read.CONTRACT_VERSION(), "2.0.1-alpha");
     assert.equal((await campaign.read.owner()).toLowerCase(), creator.account.address.toLowerCase());
   });
 

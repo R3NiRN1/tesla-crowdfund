@@ -1,6 +1,6 @@
 # Wallet transaction recovery
 
-Scope: issue #77, stacked on the unmerged V2 candidate from PRs #74-#76.
+Scope: issue #77, stacked on the unmerged V2 candidate from PRs #74-#76 and #80.
 This is a wallet lifecycle repair, not a contract security approval or permission
 to deploy. Shared testing remains on hold.
 
@@ -11,6 +11,13 @@ to deploy. Shared testing remains on hold.
 - A confirmed user rejection can release that reservation. A transport error
   cannot prove that nothing was broadcast; it keeps sending locked and allows
   checking an existing transaction hash instead.
+- A manually supplied hash is tracking only. Even a matching, confirmed older
+  success or revert cannot resolve the uncertain original request, unlock a
+  second send, or trigger an intended-action success callback. Independent
+  reconciliation is required. A matching backend-verified publication may
+  complete the publication goal while retaining the public hint against redeploy.
+- If a returned hash cannot be persisted, retain the request safety marker.
+  Partial storage failure must not remove the last reload protection.
 - Known hashes are tracked on their original chain. Missing receipts, timeouts
   and early backend verification failures do not enable a replacement deployment.
 - Successful receipts are consumed once. Callback identity changes and fresh
@@ -64,7 +71,8 @@ that untested security properties hold.
 
 The accompanying bounded adversarial review identified separate blockers in
 ownership/escrow liveness, draft-storage bounds and operator-session revocation.
-They require separately scoped regression fixes and review before shared testing.
-Do not hide them behind a green wallet test suite or restart the completed launch
+Their proposed fixes are isolated in draft PR #80, a dependency of this wallet
+change. Require final combined checks and independent review before shared
+testing; green separate suites are not enough. Do not restart the completed launch
 queue wholesale. Preserve the independent security review and live-test gates in
 the [readiness report](FIRST_ROUND_TEST_READINESS_2026-10-21.md).

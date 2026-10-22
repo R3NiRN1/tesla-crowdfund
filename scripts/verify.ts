@@ -30,7 +30,7 @@ type VerifyConfig = {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEPLOYMENTS_DIR = path.join(__dirname, "..", "deployments");
-const EXPECTED_FACTORY_VERSION = "2.0.0-alpha";
+const EXPECTED_FACTORY_VERSION = "2.0.1-alpha";
 
 function getVerifyConfig(networkName: string): VerifyConfig {
   const apiKey = process.env.BSCSCAN_API_KEY;

@@ -3,7 +3,7 @@ import { factoryAbi } from "./factoryAbi";
 import { getPublicConfig, ZERO_ADDRESS } from "./publicConfig";
 import { getStoredConfig } from "./storedConfig";
 
-export const EXPECTED_FACTORY_VERSION = "2.0.0-alpha";
+export const EXPECTED_FACTORY_VERSION = "2.0.1-alpha";
 
 function getFactoryAddress() {
   const storedConfig = typeof window === "undefined" ? null : getStoredConfig();

@@ -36,6 +36,7 @@ export function useWalletTransaction({ recoveryKey, account, chainId, targets, o
   const [ready, setReady] = useState(false);
   const [promptPending, setPromptPending] = useState(false);
   const [needsHash, setNeedsHash] = useState(false);
+  const [unresolvedRequest, setUnresolvedRequest] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [provenReceipt, setProvenReceipt] = useState<TransactionReceipt | null>(null);
   const completed = useRef(new Set<Hash>());
@@ -55,8 +56,10 @@ export function useWalletTransaction({ recoveryKey, account, chainId, targets, o
         clearTransactionRecovery(recoveryKey, hint.hash);
         setMessage("An invalid transaction recovery hint was discarded. Check your wallet history before sending.");
       }
-      setPromptPending(signing.has(recoveryKey));
-      setNeedsHash(unknownSubmissions.has(recoveryKey) || (!hint && !signing.has(recoveryKey) && hasTransactionRequest(recoveryKey)));
+      const unresolved = hasTransactionRequest(recoveryKey);
+      setUnresolvedRequest(unresolved);
+      setPromptPending(signing.has(recoveryKey) && !unknownSubmissions.has(recoveryKey));
+      setNeedsHash(!valid && (unknownSubmissions.has(recoveryKey) || (!signing.has(recoveryKey) && unresolved)));
       setReady(true);
     };
     refresh();
@@ -68,10 +71,10 @@ export function useWalletTransaction({ recoveryKey, account, chainId, targets, o
     onSuccess(hash, input) {
       const origin = requestOrigins.get(input);
       if (!origin) return;
-      saveTransactionRecovery(origin.key, { hash, ...origin.hint });
+      const persisted = saveTransactionRecovery(origin.key, { hash, ...origin.hint });
       signing.delete(origin.key);
       unknownSubmissions.delete(origin.key);
-      clearTransactionRequest(origin.key);
+      if (persisted) clearTransactionRequest(origin.key);
       notify();
     },
     onError(error, input) {
@@ -131,6 +134,10 @@ export function useWalletTransaction({ recoveryKey, account, chainId, targets, o
       setMessage("Receipt does not match this wallet action. Sending remains blocked.");
       return;
     }
+    if (hasTransactionRequest(recoveryKey)) {
+      setMessage("Receipt found, but this hash does not resolve the uncertain wallet request. Sending remains blocked pending independent reconciliation.");
+      return;
+    }
     completed.current.add(pending.hash);
     clearTransactionRecovery(recoveryKey, pending.hash);
     setTracking(null);
@@ -142,7 +149,7 @@ export function useWalletTransaction({ recoveryKey, account, chainId, targets, o
     if (expected && !replaced && result.status === "success") onSuccess(result);
   }, [account, chainId, onSuccess, pending, provenReceipt, recoveryKey]);
 
-  const blocked = !ready || promptPending || needsHash || isPending || Boolean(pending);
+  const blocked = !ready || unresolvedRequest || promptPending || needsHash || isPending || Boolean(pending);
   const send = (input: Parameters<typeof writeContract>[0]) => {
     if (blocked || signing.has(recoveryKey) || hasTransactionRequest(recoveryKey) || readTransactionRecovery(recoveryKey) || !account || !chainId) return;
     if (!allowedTargets.split(",").includes(input.address.toLowerCase())) return;
@@ -175,13 +182,13 @@ export function useWalletTransaction({ recoveryKey, account, chainId, targets, o
       || !allowedTargets.split(",").includes(target.toLowerCase())) return;
     saveTransactionRecovery(recoveryKey, { hash: hash as Hash, target: target as Address, account, chainId });
     signing.delete(recoveryKey);
-    unknownSubmissions.delete(recoveryKey);
-    clearTransactionRequest(recoveryKey);
+    // A supplied hash cannot prove which transaction the uncertain request produced.
     notify();
   };
   return { send, blocked, pending, promptPending: promptPending || isPending, retry, message,
     needsHash, recover, targets,
     error: error ? "Wallet request failed. Check your wallet before retrying." : null,
     statusUnknown: Boolean(pending && receipt.error),
+    unresolvedReceipt: Boolean(pending && unresolvedRequest && provenReceipt?.transactionHash === pending.hash),
   };
 }
