@@ -4,6 +4,20 @@ Decision: **HOLD shared BSC testing and branch consolidation.** Developer-only l
 rehearsal is available. The completed launch issue queue is not a current security
 approval, and `dev` still lacks the V2 security repairs.
 
+## Security Follow-Up: 2026-10-22
+
+Bounded adversarial testing found previously uncovered ownership/escrow liveness,
+draft-storage amplification and operator-session revocation defects. Issue #79
+contains focused proposed repairs and regression evidence, including a new
+`2.0.1-alpha` contract identity that rejects the older unsafe deployment version.
+See [the security repair record](security/ADVERSARIAL_REPAIR_2026-10-22.md).
+
+The separate wallet recovery repair is preserved in draft PR #78; its exact
+`fa60dee` head passed 102 tests, all seven functional CI jobs and all five security
+jobs. That does not integrate the issue #79 repairs or approve a launch. Require
+combined-candidate checks after dependency integration, independent human review
+and live-test gates. Shared testing and branch consolidation remain HOLD.
+
 ## Verified local support follow-up
 
 This section supersedes the initial review's local-infrastructure and repository

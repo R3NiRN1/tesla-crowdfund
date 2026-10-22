@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { assertNetworkSafety } from "./guardrails.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const EXPECTED_FACTORY_VERSION = "2.0.0-alpha";
+const EXPECTED_FACTORY_VERSION = "2.0.1-alpha";
 const DEPLOYMENTS_DIR = path.join(__dirname, "..", "deployments");
 
 type DeploymentFile = {

@@ -1,7 +1,7 @@
 import { getPublicClient } from "./publicClient";
 import { campaignAbi } from "./campaignAbi";
 
-export const EXPECTED_CAMPAIGN_VERSION = "2.0.0-alpha";
+export const EXPECTED_CAMPAIGN_VERSION = "2.0.1-alpha";
 
 export type CampaignState = 0 | 1 | 2 | 3;
 export type MilestoneStatus = 0 | 1 | 2 | 3;

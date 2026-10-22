@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 export const BSC_TESTNET_CHAIN_ID = 97;
-export const EXPECTED_V2_VERSION = "2.0.0-alpha";
+export const EXPECTED_V2_VERSION = "2.0.1-alpha";
 
 export async function requireBscTestnet(publicClient: any): Promise<void> {
   const chainId = await publicClient.getChainId();

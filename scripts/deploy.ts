@@ -6,7 +6,7 @@ import { assertNetworkSafety } from "./guardrails.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEPLOYMENTS_DIR = path.join(__dirname, "..", "deployments");
-const EXPECTED_FACTORY_VERSION = "2.0.0-alpha";
+const EXPECTED_FACTORY_VERSION = "2.0.1-alpha";
 const BSC_MAINNET_CHAIN_ID = 56;
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 

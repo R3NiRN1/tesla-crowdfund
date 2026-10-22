@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 
 import { migrateDatabase } from "./migrate.mjs";
 import { PostgresRepository } from "./repositories/postgres.mjs";
+import { runSubmissionLimitsChecks } from "./submission-limits-check.mjs";
+import { runOperatorChecks } from "./operator-check.mjs";
 
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required for PostgreSQL integration checks");
 await migrateDatabase();
@@ -52,6 +54,8 @@ try {
     (error) => error.code === "duplicate-record" && error.statusCode === 409,
   );
   assert.equal((await first.read()).submissions.length, 1, "duplicate publication transaction must roll back completely");
+  await runSubmissionLimitsChecks(first, second);
+  await runOperatorChecks(first, second);
   console.log("backend:postgres-check passed");
 } finally {
   await first.close();

@@ -23,4 +23,15 @@ Credential revocation is a trusted CLI operation:
 npm run backend:operator -- revoke-credential <credential-id>
 ```
 
+Revocation invalidates every session issued by that credential in the same
+repository transaction. Authorization also rechecks credential binding, operator
+identity, revocation and expiry on each request; another valid credential is not
+revoked as a side effect. Requests already authorized before revocation are not
+retroactively undone.
+
+After applying the security repair, legacy sessions without `credentialId` fail
+closed. Operators must authenticate again with a valid credential. No destructive
+database reset or credential export is required. Invalid expiry data is rejected,
+not treated as unlimited access.
+
 This credential adapter is a credible pre-production boundary, not the final hosting identity decision. Production still needs a human choice for secret distribution/rotation and whether an OIDC, mTLS or workforce identity provider replaces credentials. The role/authorizer boundary is deliberately independent of crowdfunding governance and arbitrator policy, so that hosting choice does not rewrite business logic.
