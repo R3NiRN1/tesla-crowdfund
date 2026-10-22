@@ -1,10 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { useAccount } from "wagmi";
 
 import { campaignWriteAbi } from "@/lib/campaignWriteAbi";
+import { useNetworkGuard } from "@/lib/useNetworkGuard";
+import { useWalletTransaction } from "@/lib/useWalletTransaction";
+import WalletTransactionStatus from "./WalletTransactionStatus";
 import {
   MILESTONE_STATUS_LABELS,
   EXPECTED_CAMPAIGN_VERSION,
@@ -52,18 +55,22 @@ function ActionButton({
   );
 }
 
-export default function CampaignV2Actions({
+type ActionProps = { campaign: CampaignView; disabledReason?: string | null; onChanged: () => void };
+
+export default function CampaignV2Actions(props: ActionProps) {
+  const { address, chainId } = useAccount();
+  const network = useNetworkGuard();
+  return <CampaignActions key={`${address}:${chainId}:${network.expectedChainId}:${props.campaign.address}:${props.campaign.nextMilestone}`} {...props} />;
+}
+
+function CampaignActions({
   campaign,
   disabledReason,
   onChanged,
-}: {
-  campaign: CampaignView;
-  disabledReason?: string | null;
-  onChanged: () => void;
-}) {
+}: ActionProps) {
   const { address, isConnected } = useAccount();
-  const { writeContract, data: transactionHash, isPending, error: writeError } = useWriteContract();
-  const receipt = useWaitForTransactionReceipt({ hash: transactionHash });
+  const network = useNetworkGuard();
+  const readGeneration = useRef(0);
   const [participant, setParticipant] = useState<CampaignParticipantView | null>(null);
   const [participantError, setParticipantError] = useState<string | null>(null);
   const [evidenceURI, setEvidenceURI] = useState("");
@@ -73,42 +80,53 @@ export default function CampaignV2Actions({
   const currentMilestone = nextIndex >= 0 && nextIndex < campaign.milestones.length
     ? campaign.milestones[nextIndex]
     : null;
+  const hasCurrentMilestone = currentMilestone !== null;
   const now = BigInt(Math.floor(Date.now() / 1000));
   const isOwner = sameAddress(address, campaign.owner);
   const isArbitrator = sameAddress(address, campaign.arbitrator);
   const versionMismatch = campaign.contractVersion !== EXPECTED_CAMPAIGN_VERSION
     ? `Writes disabled: campaign version ${campaign.contractVersion || "missing"} is not ${EXPECTED_CAMPAIGN_VERSION}.`
     : null;
-  const effectiveDisabledReason = disabledReason || versionMismatch;
-  const walletBlocked = !isConnected || !address || Boolean(effectiveDisabledReason) || isPending || receipt.isLoading;
+  const effectiveDisabledReason = disabledReason || versionMismatch || network.message;
   const validEvidenceHash = /^0x[a-fA-F0-9]{64}$/.test(evidenceHash.trim()) && !/^0x0{64}$/i.test(evidenceHash.trim());
 
   const refreshParticipant = useCallback(async () => {
+    const generation = ++readGeneration.current;
+    setParticipant(null);
     if (!address) {
       setParticipant(null);
       setParticipantError(null);
       return;
     }
     try {
-      const next = await readCampaignParticipant(campaign.address, address, currentMilestone ? nextIndex : -1);
+      const next = await readCampaignParticipant(campaign.address, address, hasCurrentMilestone ? nextIndex : -1);
+      if (readGeneration.current !== generation) return;
       setParticipant(next);
       setParticipantError(null);
     } catch (error) {
+      if (readGeneration.current !== generation) return;
       setParticipant(null);
       setParticipantError(error instanceof Error ? error.message : "Could not read wallet campaign state.");
     }
-  }, [address, campaign.address, currentMilestone, nextIndex]);
+  }, [address, campaign.address, hasCurrentMilestone, nextIndex]);
 
+  const invalidateParticipant = useCallback(() => { readGeneration.current++; }, []);
   useEffect(() => {
     void refreshParticipant();
-  }, [refreshParticipant]);
+    return invalidateParticipant;
+  }, [invalidateParticipant, refreshParticipant]);
 
-  useEffect(() => {
-    if (receipt.data?.status === "success") {
+  const transaction = useWalletTransaction({
+    recoveryKey: `action:${network.expectedChainId}:${address?.toLowerCase()}:${campaign.address.toLowerCase()}`,
+    account: address,
+    chainId: network.expectedChainId,
+    targets: [campaign.address],
+    onSuccess() {
       void refreshParticipant();
       onChanged();
-    }
-  }, [onChanged, receipt.data?.status, refreshParticipant]);
+    },
+  });
+  const walletBlocked = !isConnected || !address || network.blockWrites || Boolean(effectiveDisabledReason) || transaction.blocked || !participant || Boolean(participantError);
 
   const send = (
     functionName:
@@ -123,12 +141,12 @@ export default function CampaignV2Actions({
     args?: readonly unknown[],
   ) => {
     if (walletBlocked) return;
-    writeContract({
+    transaction.send({
       address: campaign.address,
       abi: campaignWriteAbi,
       functionName,
       ...(args ? { args } : {}),
-    } as Parameters<typeof writeContract>[0]);
+    } as Parameters<typeof transaction.send>[0]);
   };
 
   const walletStatus = useMemo(() => {
@@ -300,12 +318,8 @@ export default function CampaignV2Actions({
         </div>
       )}
 
-      {transactionHash && (
-        <div className="small muted" style={{ marginTop: 10 }}>
-          Last action: {transactionHash.slice(0, 10)}... {receipt.isLoading ? "pending" : receipt.data?.status ?? "submitted"}
-        </div>
-      )}
-      {writeError && <div className="panel-danger" style={{ marginTop: 10 }}>{writeError.message}</div>}
+      {participantError && <button type="button" className="button-secondary" onClick={() => { void refreshParticipant(); }}>Retry wallet state</button>}
+      <WalletTransactionStatus transaction={transaction} />
     </div>
   );
 }

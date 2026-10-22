@@ -4,25 +4,64 @@ Decision: **HOLD shared BSC testing and branch consolidation.** Developer-only l
 rehearsal is available. The completed launch issue queue is not a current security
 approval, and `dev` still lacks the V2 security repairs.
 
-## Security Follow-Up: 2026-10-22
+## Combined Security And Wallet Candidate: 2026-10-22
 
-Bounded adversarial testing found previously uncovered ownership/escrow liveness,
-draft-storage amplification and operator-session revocation defects. Issue #79
-contains focused proposed repairs and regression evidence, including a new
-`2.0.1-alpha` contract identity that rejects the older unsafe deployment version.
+Issue #77 repairs duplicate wallet submissions, receipt refresh loops and
+publication recovery on the unmerged candidate. Its React DOM tests do not
+constitute real-wallet acceptance or an independent penetration test. Require
+fresh checks on its exact final commit; see [the recovery boundary](WALLET_TRANSACTION_RECOVERY.md).
+
+A bounded local adversarial review also reproduced ownership/escrow liveness,
+draft-storage amplification and credential/session revocation defects. Issue #79
+contains focused proposed repairs, now incorporated into this wallet candidate.
+The repaired `2.0.1-alpha` identity rejects the older unsafe deployment version.
 See [the security repair record](security/ADVERSARIAL_REPAIR_2026-10-22.md).
 
-The separate wallet recovery repair is preserved in draft PR #78; its exact
-`fa60dee` head passed 102 tests, all seven functional CI jobs and all five security
-jobs. That does not integrate the issue #79 repairs or approve a launch. Require
-combined-candidate checks after dependency integration, independent human review
-and live-test gates. Shared testing and branch consolidation remain HOLD.
+Before integration, draft PR #78 at `fa60dee` passed 102 wallet tests and all
+functional/security jobs. Draft PR #80 at `91d5fbc` independently passed 21
+contract tests, eight backend suites, all 11 clean-commit local rehearsal stages
+and all seven functional/five security CI jobs. Those separate passes do not
+replace final combined-candidate checks or independent human security review.
+Shared testing and branch consolidation remain HOLD. No real funds are permitted.
 
-## Verified local support follow-up
+An earlier combined wallet checkpoint passed 113 React/engine tests, eight backend
+suites, 21 contract tests, lint including 43 toolchain guards, and zero-advisory
+root/full frontend audits. A clean-commit local run at `1a1b67c` passed all 11
+PostgreSQL/creator/operator/backer/restart/restore stages. Its seven functional
+and five security CI jobs passed; require fresh exact-head results after the
+final storage guard. The recovery regressions reproduced historical-hash
+unlocking and partial-storage failures before repair. Manual candidate hashes
+now retain the uncertain-request lock; they cannot authorize another send.
 
-This section supersedes the initial review's local-infrastructure and repository
-settings gaps below; the original table remains historical evidence, not current
-test status. **Decision remains LOCAL_ONLY; shared launch is on hold.**
+PR #78 now targets the separate operator-role repair in PR #82, based on PR #80,
+so its diff remains wallet-only. PR #82 at `67ffa95` passed all seven functional
+and five security CI jobs after the advisory service recovered; no audit gate
+was weakened. Its diagnostics and self-logout repairs were incorporated into
+the wallet branch with an ordinary merge, preserving history.
+
+The resulting runtime checkpoint `52f3ee2` passed 123 React/engine tests, nine
+backend suites, 21 contract tests, lint with 43 toolchain guards, clean default
+Windows production build and full root/frontend/rehearsal-support audits with
+zero known advisories. Its clean-source local rehearsal passed all 11 actual
+PostgreSQL/role/publication/restart/restore stages. Require exact final-head
+functional/security CI; local or separate-head passes cannot replace it.
+
+The thirteen PR #74 review threads were rechecked and remain unresolved. Actual
+wallet/browser acceptance, public-host validation, fresh chain-97 deployment and the real-time
+soak remain unperformed. No PR has been merged into `dev` and no unmerged branch
+has been deleted. Automated local testing is not an independent penetration test.
+
+The default Windows production build passed after the current clean frontend
+installation, including static generation of all application routes. This is
+fresh successful evidence, not a claim that a source repair for the earlier
+host-specific Turbopack failure was identified. Final-head CI remains required.
+
+## Historical local support follow-up
+
+This historical checkpoint superseded the initial review's local-infrastructure
+and repository settings gaps below. Its audit/build failures are historical;
+use the current combined-candidate results above and the lint repair record below.
+**Decision remains LOCAL_ONLY; shared launch is on hold.**
 
 - PR #76 commit `514fdfa953917184b0c120d8080a761c2a52b812` passed all
   eleven integrated checks on a clean working tree. `npm run test:local`

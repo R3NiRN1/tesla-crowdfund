@@ -172,6 +172,8 @@ jobs:
         run: npm --prefix frontend ci
       - name: Lint frontend
         run: npm --prefix frontend run lint
+      - name: Test wallet lifecycle and recovery regressions
+        run: npm --prefix frontend run test:ui
       - name: Build frontend
         run: npm --prefix frontend run build
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useAccount, useChainId } from "wagmi";
+import { useAccount } from "wagmi";
 
 import { usePublicConfig } from "./usePublicConfig";
 
@@ -27,13 +27,12 @@ export type NetworkGuardState = {
 };
 
 export function useNetworkGuard(): NetworkGuardState {
-  const { isConnected } = useAccount();
-  const connectedChainId = useChainId();
+  const { isConnected, chainId: connectedChainId } = useAccount();
   const publicConfig = usePublicConfig();
 
   return useMemo(() => {
     const expectedChainId = publicConfig.chainId ?? null;
-    const actualChainId = isConnected ? connectedChainId : null;
+    const actualChainId = isConnected ? connectedChainId ?? null : null;
 
     const isMisconfigured = isConnected && expectedChainId === null;
     const isWrongNetwork =
@@ -51,6 +50,9 @@ export function useNetworkGuard(): NetworkGuardState {
         actualLabel ?? actualChainId
       } (${actualChainId}). Please switch network in your wallet.`;
     }
+    if (isConnected && actualChainId === null) {
+      message = "Wallet network is unavailable. Reconnect your wallet before sending a transaction.";
+    }
 
     return {
       expectedChainId,
@@ -60,7 +62,7 @@ export function useNetworkGuard(): NetworkGuardState {
       isConnected,
       isWrongNetwork,
       isMisconfigured,
-      blockWrites: isWrongNetwork || isMisconfigured,
+      blockWrites: isWrongNetwork || isMisconfigured || (isConnected && actualChainId === null),
       message,
     };
   }, [connectedChainId, isConnected, publicConfig.chainId]);
